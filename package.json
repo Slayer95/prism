@@ -1,0 +1,40 @@
+{
+  "name": "prism",
+  "version": "0.0.1",
+  "description": "Language and API analysis tooling for Warcraft III",
+  "main": "index.js",
+  "scripts": {
+    "test": "mocha ."
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Slayer95/prism.git"
+  },
+  "keywords": [
+    "jass",
+    "lua",
+    "wc3",
+    "warcraft",
+    "static",
+    "analysis",
+    "vm",
+    "debug",
+    "debugger",
+    "simulation",
+    "emulation",
+    "anticheat"
+  ],
+  "author": "Leonardo Julca",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/Slayer95/prism/issues"
+  },
+  "homepage": "https://github.com/Slayer95/prism#readme",
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "mocha": "^11.7.6",
+    "ts-node": "^10.9.2",
+    "tslib": "^2.8.1",
+    "typescript": "^6.0.3"
+  }
+}
