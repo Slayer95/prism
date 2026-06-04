@@ -36,5 +36,9 @@
     "ts-node": "^10.9.2",
     "tslib": "^2.8.1",
     "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "tree-sitter": "^0.25.0",
+    "tree-sitter-jass": "github:Slayer95/tree-sitter-jass#main"
   }
 }

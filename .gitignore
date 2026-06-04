@@ -12,6 +12,10 @@
 *.tmp
 *.csv
 *.tsv
+*.log
+*.bkp
+*.j
+*.p
 
 # Git Portable
 /dev/
