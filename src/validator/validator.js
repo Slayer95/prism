@@ -84,6 +84,21 @@ function getNextSignificantSibling(node) {
 	return node || null;
 }
 
+function setAddMany(targetSet, iterable) {
+	for (const entry of iterable) {
+		targetSet.add(entry);
+	}
+}
+
+function getAreDisjoint(set1, set2) {
+	for (const elem of set2) {
+		if (set1.has(elem)) {
+			return false;
+		}
+	}
+	return true;
+}
+
 class TypeInfo {
 	constructor(name, parentType, onlyAtomic = false) {
 		this.name = name;
@@ -101,6 +116,7 @@ class ControlFlow {
 		this.validator = validator;
 		this.currentNode = null;
 		this.currentFnNode = null;
+		this.currentLoopNode = null;
 		this.stack = [];
 		this.about = new Map();
 	}
@@ -113,9 +129,13 @@ class ControlFlow {
 			if (node.type === 'FunctionBody') {
 				this.currentFnNode = node;
 			}
+			if (node.type === 'LoopStatement') {
+				this.currentLoopNode = node;
+			}
 			this.about.set(node, {
 				'exitwhen': {
 					someTimes: false,
+					variables: new Set(),
 				},
 				'return': {
 					needs: this.validator.state.currentFunctionNameNeedsReturn,
@@ -123,6 +143,10 @@ class ControlFlow {
 					someTimes: false,
 					branchesHave: [0, 0],
 					node: null,
+				},
+				'variables': {
+					read: new Set(),
+					written: new Set(),
 				},
 			});
 		}
@@ -134,12 +158,19 @@ class ControlFlow {
 			this.stack.pop();
 			this.currentNode = this.stack.length ? this.stack[this.stack.length - 1] : null;
 			if (!this.currentNode) this.currentFnNode = null;
+			this.currentLoopNode = null;
+			for (let i = this.stack.length - 1; i >= 0; i--) {
+				if (this.stack[i].type === 'LoopStatement') {
+					this.currentLoopNode = this.stack[i];
+					break;
+				}
+			}
 		}
 		this.onLeave(node, this.currentNode);
 	}
 
 	getIsNestedNodeType(nodeType) {
-		return (nodeType !== 'ReturnStatement' && nodeType !== 'ExitWhenStatement');
+		return (nodeType !== 'ReturnStatement' && nodeType !== 'VariableReference' && nodeType !== 'ArrayElement');
 	}
 
 	onEnter(node, parentControlFlowNode) {
@@ -174,9 +205,48 @@ class ControlFlow {
 		} else if (node.type === 'ExitWhenStatement') {
 			const aboutAncestor = this.about.get(parentControlFlowNode);
 			aboutAncestor.exitwhen.someTimes = true;
+
+			const aboutLoopAncestor = this.about.get(this.currentLoopNode);
+			setAddMany(aboutAncestor.exitwhen.variables, this.about.get(node).variables.read);
+			return;
+		} else if (node.type === 'VariableReference') {
+			if (parentControlFlowNode !== null) {
+				const ioEntry = node.text;
+				if (parentControlFlowNode.type === 'ExitWhenStatement') {
+					const aboutAncestor = this.about.get(parentControlFlowNode);
+					aboutAncestor.variables.read.add(ioEntry);
+				} else if (node.parent.type === 'SetStatement' && node.parent.firstNamedChild === node) {
+					if (this.currentLoopNode) {
+						const aboutLoopAncestor = this.about.get(this.currentLoopNode);
+						aboutLoopAncestor.variables.written.add(ioEntry);
+					}
+					{
+						const aboutFnAncestor = this.about.get(this.currentFnNode);
+						aboutFnAncestor.variables.written.add(ioEntry);
+					}
+				}
+			}
+			return;
+		} else if (node.type === 'ArrayElement') {
+			if (parentControlFlowNode !== null) {
+				const ioEntry = `${node.firstNamedChild.text},${node.lastNamedChild.text}`;
+				if (parentControlFlowNode.type === 'ExitWhenStatement') {
+					const aboutAncestor = this.about.get(parentControlFlowNode);
+					aboutAncestor.variables.read.add(ioEntry);
+				} else if (node.parent.type === 'SetStatement' && node.parent.firstNamedChild === node) {
+					if (this.currentLoopNode) {
+						const aboutLoopAncestor = this.about.get(this.currentLoopNode);
+						aboutLoopAncestor.variables.written.add(ioEntry);
+					}
+					{
+						const aboutFnAncestor = this.about.get(this.currentFnNode);
+						aboutFnAncestor.variables.written.add(ioEntry);
+					}
+				}
+			}
 			return;
 		}
-		const aboutNode = this.about.get(node)
+		const aboutNode = this.about.get(node);
 		switch (node.type) {
 			case 'FunctionBody': {
 				if (aboutNode.return.needs) {
@@ -195,6 +265,16 @@ class ControlFlow {
 				if (!aboutNode.exitwhen.someTimes && !aboutNode.return.someTimes) {
 					// Baseline PASS
 					this.validator.emitNodeEvent(node, 'infinite_loop');
+				}
+
+				if (aboutNode.exitwhen.variables.size && getAreDisjoint(aboutNode.exitwhen.variables, aboutNode.variables.written)) {
+					if (this.validator.getIsAnyNonLocal(aboutNode.exitwhen.variables)) {
+						// Baseline PASS
+						this.validator.emitNodeEvent(node, 'exitwhen_non_local');
+					} else {
+						// Baseline PASS
+						this.validator.emitNodeEvent(node, 'exitwhen_constant');
+					}
 				}
 
 				if (aboutNode.return.always) {
@@ -695,6 +775,18 @@ class Validator extends EventEmitter {
 		return null;
 	}
 
+	getIsAnyNonLocal(variableList) {
+		for (const varName of variableList) {
+			if (!this.symbols.local.has(varName)) {
+				const commaIndex = varName.indexOf(',');
+				if (commaIndex < 0) return true;
+				if (!this.symbols.local.has(varName.slice(0, commaIndex))) {
+					return true;
+				}
+			}
+		}
+	}
+
 	validateNodeType(node, expectedType, initializerNode, initializerDesc) {
 		if (initializerNode.type === 'CodeReference') {
 			if (expectedType !== 'code') {
@@ -943,6 +1035,7 @@ class Validator extends EventEmitter {
 				// set var[_] = _
 				// call _(_[var])
 				// set _[var] = _
+				this.controlFlow.enter(node);
 				const variableName = node.text;
 				const isArrayAccess = node.parent.type === 'ArrayElement' && (node === node.parent.firstNamedChild);
 				const declaredSymbol = this.getSymbol(variableName);
@@ -963,6 +1056,7 @@ class Validator extends EventEmitter {
 			}
 
 			case 'ArrayElement': {
+				this.controlFlow.enter(node);
 				const arrayName = findChildNamed(node, 'array').text;
 				const indexNode = findChildNamed(node, 'index');
 				const declaredSymbol = this.getSymbol(arrayName);
@@ -1121,6 +1215,12 @@ class Validator extends EventEmitter {
 		switch (node.type) {
 			case 'FunctionDeclaration': {
 				this.resetLocalSymbols();
+				break;
+			}
+
+			case 'VariableReference':
+			case 'ArrayElement': {
+				this.controlFlow.leave(node);
 				break;
 			}
 
