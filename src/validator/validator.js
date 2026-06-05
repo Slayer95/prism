@@ -908,8 +908,11 @@ class Validator extends EventEmitter {
 					} else if (declaredSymbol.isNative) {
 						// Baseline PASS, but segfaults
 						this.emitNodeEvent(node, 'funarg_native', funcName);
-					} else if (declaredSymbol.returnType !== 'boolean' && findChildNamed(node.closest('CallExpression'), 'callee').text === 'Condition') {
-						this.emitNodeEvent(node, 'condition_not_boolean', funcName);
+					} else if (declaredSymbol.returnType !== 'boolean') {
+						const higherOrderName = findChildNamed(node.closest('CallExpression'), 'callee').text;
+						if (higherOrderName === 'Condition' || higherOrderName === 'Filter') {
+							this.emitNodeEvent(node, 'higher_order_type_mismatch', 'boolean', declaredSymbol.returnType, higherOrderName, funcName);
+						}
 					}
 				}
 				break;
