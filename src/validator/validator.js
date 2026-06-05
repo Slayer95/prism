@@ -8,6 +8,8 @@ const JASS = require('tree-sitter-jass');
 const {ValidatorResult} = require('./../../lib/constants');
 const {internalTypes, isPrimitiveType, isAPINeedsInitialization} = require('./../../lib');
 
+const SILENCED_EVENTS = ['return_value_discarded', 'recursive_function', 'type_mismatch', 'bad_comparison', 'bad_null_assignment'];
+
 function findChildNamed(node, name) {
 	const children = node.childrenForFieldName(name);
 	if (children.length) return children[0];
@@ -52,15 +54,31 @@ function isArrayType(typeNode) {
 
 function getSelfOrNextSignificantSibling(node) {
 	while (node && (node.type === 'Comment' || node.type === 'NewLine')) {
-		node = node.nextSibling;
+		node = node.nextNamedSibling;
 	}
+
+	return node || null;
+}
+
+function getPrevExitWhen(node) {
+	do {
+		node = node.prevNamedSibling;
+	} while (node && node.type === 'ExitWhenStatement');
+
+	return node || null;
+}
+
+function getPrevSignificantSibling(node) {
+	do {
+		node = node.prevNamedSibling;
+	} while (node && (node.type === 'Comment' || node.type === 'NewLine'));
 
 	return node || null;
 }
 
 function getNextSignificantSibling(node) {
 	do {
-		node = node.nextSibling;
+		node = node.nextNamedSibling;
 	} while (node && (node.type === 'Comment' || node.type === 'NewLine'));
 
 	return node || null;
@@ -78,19 +96,202 @@ class TypeInfo {
 	}
 }
 
+class ControlFlow {
+	constructor(validator) { 
+		this.validator = validator;
+		this.currentNode = null;
+		this.currentFnNode = null;
+		this.stack = [];
+		this.about = new Map();
+	}
+
+	enter(node) {
+		const ancestorNode = this.currentNode;
+		if (this.getIsNestedNodeType(node.type)) {
+			this.stack.push(node);
+			this.currentNode = node;
+			if (node.type === 'FunctionBody') {
+				this.currentFnNode = node;
+			}
+			this.about.set(node, {
+				'exitwhen': {
+					someTimes: false,
+				},
+				'return': {
+					needs: this.validator.state.currentFunctionNameNeedsReturn,
+					always: false,
+					someTimes: false,
+					branchesHave: [0, 0],
+					node: null,
+				},
+			});
+		}
+		this.onEnter(node, ancestorNode);
+	}
+
+	leave(node) {
+		if (this.getIsNestedNodeType(node.type)) {
+			this.stack.pop();
+			this.currentNode = this.stack.length ? this.stack[this.stack.length - 1] : null;
+			if (!this.currentNode) this.currentFnNode = null;
+		}
+		this.onLeave(node, this.currentNode);
+	}
+
+	getIsNestedNodeType(nodeType) {
+		return (nodeType !== 'ReturnStatement' && nodeType !== 'ExitWhenStatement');
+	}
+
+	onEnter(node, parentControlFlowNode) {
+		const loopAgnosticType = node.type.slice(1);
+		if (loopAgnosticType === 'IfStatement') {
+			this.about.get(node).return.branchesHave[1] = 2;
+		} else if (loopAgnosticType.startsWith('ElseIf')) {
+			this.about.get(parentControlFlowNode).return.branchesHave[1]++;
+		}
+	}
+
+	onLeave(node, parentControlFlowNode) {
+		let nextSignificantNode = null;
+		if (node.type === 'ReturnStatement') {
+			const aboutFn = this.about.get(this.currentFnNode);
+			aboutFn.return.someTimes = true;
+
+			const aboutAncestor = this.about.get(parentControlFlowNode);
+			if (!aboutAncestor.return.node) {
+				aboutAncestor.return.node = node;
+				aboutAncestor.return.always = true;
+				aboutAncestor.return.someTimes = true;
+			}
+			if ((nextSignificantNode = getNextSignificantSibling(node)) !== null) {
+				// Baseline PASS
+				this.validator.emitNodeEvent(node, 'unreachable_code', 'return', nextSignificantNode);
+			} else if (!aboutFn.return.needs && parentControlFlowNode === this.currentFnNode) {
+				// Baseline PASS
+				this.validator.emitNodeEvent(node, 'needless_return', nextSignificantNode);
+			}
+			return;
+		} else if (node.type === 'ExitWhenStatement') {
+			const aboutAncestor = this.about.get(parentControlFlowNode);
+			aboutAncestor.exitwhen.someTimes = true;
+			return;
+		}
+		const aboutNode = this.about.get(node)
+		switch (node.type) {
+			case 'FunctionBody': {
+				if (aboutNode.return.needs) {
+					if (!aboutNode.return.someTimes) {
+						// Baseline FAIL
+						this.validator.emitNodeEvent(node, 'missing_return');
+					} else if (!aboutNode.return.always) {
+						// Baseline PASS
+						this.validator.emitNodeEvent(node, 'missing_return_control_flow');
+					}
+				}
+				break;
+			}
+
+			case 'LoopStatement': {
+				if (!aboutNode.exitwhen.someTimes && !aboutNode.return.someTimes) {
+					// Baseline PASS
+					this.validator.emitNodeEvent(node, 'infinite_loop');
+				}
+
+				if (aboutNode.return.always) {
+					const returnNode = aboutNode.return.node;
+					let prevNode = returnNode;
+					while (prevNode = getPrevSignificantSibling(prevNode)) {
+						if (prevNode.type === 'ExitWhenStatement' || this.about.get(prevNode).exitwhen.someTimes) {
+							aboutNode.return.always = false;
+							break;
+						}
+					}
+					if (aboutNode.return.always) {
+						const aboutAncestor = this.about.get(parentControlFlowNode);
+						aboutAncestor.return.always = true;
+					}
+				}
+				break;
+			}
+
+			case 'RIfStatement':
+			case 'LIfStatement': {
+				// This flag is only set by the main RConsequent|LConsequent node
+				if (aboutNode.return.always) {
+					aboutNode.return.branchesHave[0]++;
+				}
+
+				aboutNode.return.always = (aboutNode.return.branchesHave[0] === aboutNode.return.branchesHave[1]);
+				if (aboutNode.return.always) {
+					const aboutAncestor = this.about.get(parentControlFlowNode);
+					aboutAncestor.return.always = true;
+				}
+				if (aboutNode.exitwhen.someTimes && parentControlFlowNode.type !== 'FunctionBody') {
+					const aboutAncestor = this.about.get(parentControlFlowNode);
+					aboutAncestor.exitwhen.someTimes = true;
+				}
+				break;
+			}
+
+			case 'RElseIfStatement':
+			case 'LElseIfStatement':
+			case 'RElseStatement':
+			case 'LElseStatement': {
+				if (aboutNode.return.always) {
+					const aboutAncestor = this.about.get(parentControlFlowNode);
+					aboutAncestor.return.branchesHave[0]++;
+					aboutNode.return.always = false;
+				}
+				if (aboutNode.exitwhen.someTimes) {
+					const aboutAncestor = this.about.get(parentControlFlowNode);
+					aboutAncestor.exitwhen.someTimes = true;
+				}
+				break;
+			}
+
+			default:
+				throw new Error(`Unreachable case - node.type was ${node.type}`);
+		}
+
+		if (aboutNode.return.always && node.type !== 'FunctionBody') {
+			if (this.about.get(this.currentFnNode).return.needs) {
+				if ((nextSignificantNode = getNextSignificantSibling(node)) !== null) {
+					// Baseline PASS
+					this.validator.emitNodeEvent(node, 'unreachable_code', 'return_control_flow', nextSignificantNode);
+				}
+			// In a void function
+			} else if (node.type !== 'LoopStatement') {
+				assert.equal(node.type.slice(1), 'IfStatement');
+				if (!getNextSignificantSibling(node)) {
+					// Baseline PASS
+					this.validator.emitNodeEvent(node, 'needless_return_multibranch', nextSignificantNode);
+				}
+			}
+		}
+	}
+}
+
 class Validator extends EventEmitter {
 	constructor(options) {
 		super()
 		this.options = options;
+
 		this.result = ValidatorResult.kOk;
 		this.warnings = this.options.quiet ? null : [];
 		this.errors = this.options.quiet ? null : [];
 		this.currentFile = '';
+		this.currentTree = null;
+		this.history = [];
+		this.controlFlow = new ControlFlow(this);
+		this.state = {
+			currentFunction: '',
+			currentFunctionNeedsReturn: false,
+		};
 		this.symbols = {
 			types: this.getInternalTypes(),
 			global: new Map(),
 			local: new Map(),
-			currentFunction: '',
+			//currentFunction: '',
 			currentLocal: null,
 		};
 	}
@@ -99,11 +300,19 @@ class Validator extends EventEmitter {
 		this.result = ValidatorResult.kOk;
 		this.warnings = this.options.quiet ? null : [];
 		this.errors = this.options.quiet ? null : [];
+		this.currentFile = '';
+		this.currentTree = null;
+		this.history = [];
+		this.controlFlow = new ControlFlow();
+		this.state = {
+			currentFunction: '',
+			currentFunctionNeedsReturn: false,
+		};
 		this.symbols = {
 			types: this.getInternalTypes(),
 			global: new Map(),
 			local: new Map(),
-			currentFunction: '',
+			//currentFunction: '',
 			currentLocal: null,
 		};
 	}
@@ -122,8 +331,8 @@ class Validator extends EventEmitter {
 	}
 
 	emitNodeEvent(node, eventName, ...rest) {
-		const funcName = this.currentFunction || '~';
-		if (eventName !== 'return_value_discarded' && eventName !== 'recursive_function') {
+		const funcName = this.state.currentFunctionName || '~';
+		if (!SILENCED_EVENTS.includes(eventName)) {
 			console.log(this.currentFile, funcName, node, eventName, ...rest, node.text);
 		}
 		return this.emit(this.currentFile, funcName, node, eventName, ...rest);
@@ -133,15 +342,29 @@ class Validator extends EventEmitter {
 		return new Map(internalTypes.map(name => [name, new TypeInfo(name, null, name === 'code')]));
 	}
 
+	exitFunction() {
+		this.state = {
+			currentFunction: '',
+			currentFunctionNeedsReturn: false,
+		};
+		this.resetLocalSymbols();
+	}
+
 	resetLocalSymbols() {
 		this.symbols.local.clear();
-		this.symbols.currentFunction = '';
 	}
 
 	checkTreeInner(filePath, cst, source) {
 		this.currentFile = filePath;
+		this.currentTree = cst;
 
-		const cursor = cst.rootNode.walk();
+		this.history.push([{
+			// Ensure past trees aren't deallocated
+			file: this.currentFile,
+			tree: this.currentTree,
+		}]);
+
+		const cursor = this.currentTree.rootNode.walk();
 		let reachedRoot = false;
 
 		while (!reachedRoot) {
@@ -200,14 +423,16 @@ class Validator extends EventEmitter {
 		const parentNode = node.parent;
 		const isConstant = parentNode.firstNamedChild.type === 'ConstantAttribute';
 		const isNative = parentNode.type === 'NativeDeclaration';
-		this.symbols.global.set(symbolName, {
+		const symbol = {
 			node: node,
 			type: 'code',
 			parameters: symbolHelpers.extractParameters(findChildNamed(node, 'input')),
 			returnType: symbolHelpers.extractReturnType(findChildNamed(node, 'output')),
 			isConstant,
 			isNative,
-		});
+		};
+		this.symbols.global.set(symbolName, symbol);
+		return symbol;
 	}
 
 	registerGlobalVariable(node /* GlobalDeclarationStatement */, symbolName, typeNode /* AtomicType | ArrayType */) {
@@ -482,7 +707,7 @@ class Validator extends EventEmitter {
 		if (expectedType === 'real' && initializerNode.type === 'Literal' && initializerNode.text === '0') {
 			// Integer 0 is IEEE 754 positive 0.0.
 			// This is (ab)used in some Blizzard maps, such as Worm War.
-			this.emitNodeEvent(node, 'type_punning', expectedType, '0', initializerDesc);
+			this.emitNodeEvent(node, 'type_punning', expectedType, 'integer', '0', initializerDesc);
 			return true;
 		}
 
@@ -551,13 +776,13 @@ class Validator extends EventEmitter {
 					// Baseline FAIL
 					this.emitNodeEvent(node, 'shadowing', 'global', declName);
 				}
-				this.registerFunction(node, declName)
+				const symbol = this.registerFunction(node, declName)
 
 				if (node.parent.type === 'FunctionDeclaration') {
-					this.currentFunction = declName;
+					this.state.currentFunctionName = declName;
+					this.state.currentFunctionNameNeedsReturn = symbol.returnType !== null;
 
-					const parameters = this.symbols.global.get(declName).parameters;
-					for (const [declType, declName] of parameters) {
+					for (const [declType, declName] of symbol.parameters) {
 						if (this.symbols.local.has(declName)) {
 							// Baseline PASS
 							this.emitNodeEvent(node, 'shadowing', 'parameter', declName);
@@ -635,21 +860,25 @@ class Validator extends EventEmitter {
 						if (declaredSymbol.returnType === null) {
 							this.emitNodeEvent(node, 'void_call_as_expression', calleeName);
 						} else {
+							// Baseline PASS
 							this.emitNodeEvent(node, 'return_value_discarded', calleeName);
 						}
 					}
-					if (this.currentFunction === calleeName) {
+					if (this.state.currentFunctionName === calleeName) {
 						if (node.closest('LocalDeclarationStatement')) {
 							// Baseline FAIL
 							this.emitNodeEvent(node, 'recursive_function_local', calleeName);
 						} else {
+							// Baseline PASS
 							this.emitNodeEvent(node, 'recursive_function', calleeName);
 						}
 					}
-					if (!declaredSymbol.isConstant && this.getFunction(this.currentFunction)?.isConstant) {
-						this.emitNodeEvent(node, 'const_function_violation', `const ${this.currentFunction}`, calleeName);
+					if (!declaredSymbol.isConstant && this.getFunction(this.state.currentFunctionName)?.isConstant) {
+						// Baseline FAIL
+						this.emitNodeEvent(node, 'const_function_violation', `const ${this.state.currentFunctionName}`, calleeName);
 					}
-					if (!this.currentFunction && isAPINeedsInitialization(calleeName)) {
+					if (!this.state.currentFunctionName && isAPINeedsInitialization(calleeName)) {
+						// Baseline PASS
 						this.emitNodeEvent(node, 'api_too_early', calleeName);
 					}
 				}
@@ -751,10 +980,28 @@ class Validator extends EventEmitter {
 				break;
 			}
 
+			case 'FunctionBody': {
+				//if (this.state.currentFunctionNameNeedsReturn) {
+				this.controlFlow.enter(node);
+				//}
+				break;
+			}
+
+			case 'LoopStatement': {
+				//if (this.state.currentFunctionNameNeedsReturn) {
+				this.controlFlow.enter(node);
+				//}
+				break;
+			}
+
 			case 'RIfStatement':
 			case 'LIfStatement': 
 			case 'RElseIfStatement':
 			case 'LElseIfStatement': {
+				//if (this.state.currentFunctionNameNeedsReturn) {
+				this.controlFlow.enter(node);
+				//}
+
 				const condition = findChildNamed(node, 'test');
 				if (this.getIsAlwaysTrue(condition)) {
 					this.emitNodeEvent(node, 'constant_test', 'if', 'true');
@@ -764,10 +1011,20 @@ class Validator extends EventEmitter {
 				break;
 			}
 
+			case 'RElseStatement':
+			case 'LElseStatement': {
+				//if (this.state.currentFunctionNameNeedsReturn) {
+				this.controlFlow.enter(node);
+				//}
+				break;
+			}
+
 			case 'ExitWhenStatement': {
+				this.controlFlow.enter(node);
+
 				const condition = node.lastNamedChild;
 				if (this.getIsAlwaysTrue(condition, 'exitwhen')) {
-					// NOTE: exitwhen true is JASS idiomatic break,
+					// NOTE: exitwhen true is the only "break" in JASS.
 					const nextInstruction = getNextSignificantSibling(node);
 					if (nextInstruction) {
 						this.emitNodeEvent(node, 'unreachable_code', 'exitwhen', nextInstruction);
@@ -779,20 +1036,21 @@ class Validator extends EventEmitter {
 			}
 
 			case 'ReturnStatement': {
+				//if (this.state.currentFunctionNameNeedsReturn) {
+				this.controlFlow.enter(node);
+				//}
 				const returnsSomething = node.namedChildCount > 0;
-				const nextInstruction = getNextSignificantSibling(node);
-				if (nextInstruction) {
-					this.emitNodeEvent(node, 'unreachable_code', 'return', nextInstruction);
-				}
-				const expectedReturnType = this.getFunction(this.currentFunction)?.returnType;
+				const expectedReturnType = this.getFunction(this.state.currentFunctionName)?.returnType;
 				if (returnsSomething === (expectedReturnType === null)) {
 					if (expectedReturnType === null) {
-						this.emitNodeEvent(node, 'return_value_unexpected', 'return', nextInstruction);
+						// Baseline FAIL
+						this.emitNodeEvent(node, 'return_value_unexpected', 'return', node.firstNamedChild);
 					} else {
-						this.emitNodeEvent(node, 'return_value_required', 'return', nextInstruction);
+						// Baseline FAIL
+						this.emitNodeEvent(node, 'return_value_required', 'return', node.firstNamedChild);
 					}
 				} else if (expectedReturnType !== null) {
-					this.validateNodeType(node, expectedReturnType, node.firstNamedChild, `Return value from ${this.currentFunction}`);
+					this.validateNodeType(node, expectedReturnType, node.firstNamedChild, `Return value from ${this.state.currentFunctionName}`);
 				}
 				break;
 			}
@@ -862,9 +1120,53 @@ class Validator extends EventEmitter {
 				this.resetLocalSymbols();
 				break;
 			}
+
 			case 'LocalDeclarationStatement': {
 				this.finishRegisterLocalVariable(this.symbols.currentLocal);
 				this.symbols.currentLocal = null;
+				break;
+			}
+
+			case 'LoopStatement': {
+				//if (this.state.currentFunctionNameNeedsReturn) {
+				this.controlFlow.leave(node);
+				//}
+				break;
+			}
+
+			case 'RIfStatement':
+			case 'LIfStatement': 
+			case 'RElseIfStatement':
+			case 'LElseIfStatement': {
+				//if (this.state.currentFunctionNameNeedsReturn) {
+				this.controlFlow.leave(node);
+				//}
+				break;
+			}
+
+			case 'RElseStatement':
+			case 'LElseStatement': {
+				//if (this.state.currentFunctionNameNeedsReturn) {
+				this.controlFlow.leave(node);
+				//}
+				break;
+			}
+
+			case 'ReturnStatement': {
+				//if (this.state.currentFunctionNameNeedsReturn) {
+				this.controlFlow.leave(node);
+				//}
+				break;
+			}
+			case 'ExitWhenStatement': {
+				this.controlFlow.leave(node);
+				break;
+			}
+
+			case 'FunctionBody': {
+				//if (this.state.currentFunctionNameNeedsReturn) {
+				this.controlFlow.leave(node);
+				//}
 				break;
 			}
 		}
