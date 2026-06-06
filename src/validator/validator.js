@@ -85,6 +85,25 @@ function getNextSignificantSibling(node) {
 	return node || null;
 }
 
+function getUnwrapParensDescendant(node) {
+	while (node.type === 'ParenthesizedExpression') {
+		node = node.firstNamedChild;
+	}
+	return node;
+}
+
+function getUnwrapParensAncestor(node) {
+	while (node.type === 'ParenthesizedExpression') {
+		node = node.parent;
+	}
+	return node;
+}
+
+function isFunctionArgument(node) {
+	if (node.type === 'FunctionArgument') return true;
+	return getUnwrapParensAncestor(node.parent).type === 'FunctionArgument';
+}
+
 function setAddMany(targetSet, iterable) {
 	for (const entry of iterable) {
 		targetSet.add(entry);
@@ -229,6 +248,14 @@ class ControlFlow {
 				} else {
 					aboutFnAncestor.variables.read.add(ioEntry);
 				}
+				const varInfo = this.validator.getSymbol(ioEntry);
+				if (varInfo && !isPrimitiveType(varInfo.type) && isFunctionArgument(node)) {
+					aboutFnAncestor.variables.written.add(ioEntry);
+					if (this.currentLoopNode) {
+						const aboutLoopAncestor = this.about.get(this.currentLoopNode);
+						aboutLoopAncestor.variables.written.add(ioEntry);
+					}
+				}
 			}
 			return;
 		} else if (node.type === 'ArrayElement') {
@@ -247,6 +274,14 @@ class ControlFlow {
 					aboutFnAncestor.variables.written.add(ioEntry);
 				} else {
 					aboutFnAncestor.variables.read.add(ioEntry);
+				}
+				const varInfo = this.validator.getSymbol(node.firstNamedChild.text);
+				if (varInfo && !isPrimitiveType(varInfo.type) && isFunctionArgument(node)) {
+					aboutFnAncestor.variables.written.add(ioEntry);
+					if (this.currentLoopNode) {
+						const aboutLoopAncestor = this.about.get(this.currentLoopNode);
+						aboutLoopAncestor.variables.written.add(ioEntry);
+					}
 				}
 			}
 			return;
