@@ -49,6 +49,10 @@ module.exports = {
 		float32_overflow(node, fileName, funcName, value, literal) {
 			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Real value %s cannot be internally represented.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), literal));
 		},
+		lossy_type_cast(node, fileName, funcName, toType, fromType, certainty, value, desc) {
+			if (certainty !== 'resolved') return;
+			this.error.push(util.format(`%s:%s\n\n  %s\n\n  %%s Casting %s value %d into %s loses precision.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), fromType, value, toType));
+		},
 		missing_return_control_flow(node, fileName, funcName) {
 			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Some branches of function %s do not have a return statement.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), funcName));
 		},

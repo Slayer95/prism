@@ -900,9 +900,15 @@ class Validator extends EventEmitter {
 		while (node.type === 'ParenthesizedExpression') {
 			node = node.firstNamedChild;
 		}
+
+		if (node.type !== 'Literal') {
+			return null;
+		}
+
 		if (node.type === 'Literal') {
 			node = node.firstNamedChild;
 		}
+
 		switch (node.type) {
 			case 'OctalInteger': {
 				const value = parseInt(node.text, 8);
@@ -1011,6 +1017,18 @@ class Validator extends EventEmitter {
 			// Baseline FAIL
 			this.emitNodeEvent(node, 'type_mismatch', expectedType, expressionType, initializerDesc);
 			return false;
+		} else if (expressionType === 'integer' && expectedType === 'real') {
+			const value = this.getTrivialNumberValue(expressionType, initializerNode);
+			if (value !== null && (value > 0x1_000_000 || value < -0x1_000_000)) {
+				// Baseline PASS
+				this.emitNodeEvent(node, 'lossy_type_cast', expectedType, expressionType, 'resolved', value, initializerDesc);
+				return false;
+			} else if (value !== null) {
+				// Baseline PASS
+				this.emitNodeEvent(node, 'lossy_type_cast', expectedType, expressionType, 'unknown', initializerNode.text, initializerDesc);
+				return false;
+			}
+			return true;
 		}
 		return true;
 	}

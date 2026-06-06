@@ -29,6 +29,10 @@ module.exports = {
 		exitwhen_non_local(node, fileName, funcName) {
 			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Loop exit condition only depends on external state.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text)));
 		},
+		lossy_type_cast(node, fileName, funcName, toType, fromType, certainty, value, desc) {
+			if (certainty !== 'unknown') return;
+			this.error.push(util.format(`%s:%s\n\n  %s\n\n  %%s Casting %s value %d into %s may lose precision.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), fromType, value, toType));
+		},
 		needless_return(node, fileName, funcName) {
 			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Needless return statement.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text)));
 		},
