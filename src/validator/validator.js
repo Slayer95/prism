@@ -1,14 +1,15 @@
 "use strict";
 
 const assert = require('assert/strict');
+const path = require('path');
+const util = require('util');
 const EventEmitter = require('events');
+
 const Parser = require('tree-sitter');
 const JASS = require('tree-sitter-jass');
 
 const {ValidatorResult} = require('./../../lib/constants');
 const {internalTypes, isPrimitiveType, isAPINeedsInitialization} = require('./../../lib');
-
-const SILENCED_EVENTS = ['return_value_discarded', 'recursive_function', 'type_mismatch', 'bad_comparison', 'bad_null_assignment'];
 
 function findChildNamed(node, name) {
 	const children = node.childrenForFieldName(name);
@@ -389,6 +390,7 @@ class Validator extends EventEmitter {
 		super()
 		this.options = options;
 
+		this.rules = this.options.rule || [];
 		this.result = ValidatorResult.kOk;
 		this.warnings = this.options.quiet ? null : [];
 		this.errors = this.options.quiet ? null : [];
@@ -409,6 +411,8 @@ class Validator extends EventEmitter {
 			//currentFunction: '',
 			currentLocal: null,
 		};
+
+		this.loadRules();
 	}
 
 	reset() {
@@ -432,6 +436,37 @@ class Validator extends EventEmitter {
 			//currentFunction: '',
 			currentLocal: null,
 		};
+	}
+
+	loadRules() {
+		if (!this.rules.length) {
+			this.rules.push('core', 'sound', 'recommended');
+		}
+
+		for (const ruleId of this.rules) {
+			let rule;
+			let rulePath = path.resolve(__dirname, 'rulesets', ruleId);
+			try {
+				require.resolve(rulePath);
+			} catch (err) {
+				if (err.code === 'MODULE_NOT_FOUND') {
+					this.errors.push(util.format(`Rule %s not found.`, ruleId));
+					continue;
+				}
+			}
+			try {
+				rule = require(rulePath);
+				if (!rule || !rule.handlers || typeof rule.handlers !== 'object') {
+					throw new Error(`${ruleId} does not implement the rule interface.`, ruleId);
+				}
+			} catch (err) {
+				this.errors.push(util.format(`Rule %s is invalid. %s`, ruleId, err.stack));
+				continue;
+			}
+			for (const eventName in rule.handlers) {
+				this.on(eventName, rule.handlers[eventName]);
+			}
+		}
 	}
 
 	getContextFunctionSignature(node) {
@@ -462,13 +497,6 @@ class Validator extends EventEmitter {
 
 	emitNodeEvent(node, eventName, ...rest) {
 		const funcName = this.state.currentFunctionName || '~';
-		if (!SILENCED_EVENTS.includes(eventName)) {
-			if (eventName.startsWith('unused_') && !(rest.length > 0 && /\/(common|blizzard)\.j/i.test(rest[0]))) {
-				if (!(eventName === 'unused_function' && (rest?.[1] === 'main' || rest?.[1] === 'config'))) {
-					console.log(this.currentFile, funcName, node, eventName, ...rest, node.text);
-				}
-			}
-		}
 		return this.emit(eventName, node, this.currentFile, funcName, ...rest);
 	}
 
@@ -839,7 +867,11 @@ class Validator extends EventEmitter {
 			return true;
 		}
 
-		return actualType === expectedType;
+		if (expectedType === 'real' && actualType === 'integer') {
+			return true;
+		}
+
+		return false;
 	}
 
 	getIsAlwaysTrue(node, t) {
@@ -908,7 +940,7 @@ class Validator extends EventEmitter {
 			// Integer 0 is IEEE 754 positive 0.0.
 			// This is (ab)used in some Blizzard maps, such as Worm War.
 			// Baseline PASS
-			this.emitNodeEvent(node, 'type_punning', expectedType, 'integer', '0', initializerDesc);
+			this.emitNodeEvent(node, 'number_type_punning', 'zero', expectedType, 'integer', initializerNode.text, initializerDesc);
 			return true;
 		}
 
@@ -919,6 +951,10 @@ class Validator extends EventEmitter {
 		} else if (expressionType === 'null' && isPrimitiveType(expectedType)) {
 			// Baseline PASS
 			this.emitNodeEvent(node, 'bad_null_assignment', expectedType, expressionType, initializerDesc);
+			return true;
+		} else if ((expressionType === 'real' && expectedType === 'integer') || (expressionType === 'integer' && expectedType === 'real')) {
+			// Baseline PASS
+			this.emitNodeEvent(node, 'number_type_punning', 'non-zero', expectedType, expressionType, initializerNode.text, initializerDesc);
 			return true;
 		}
 		return true;

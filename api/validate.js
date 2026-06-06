@@ -3,9 +3,11 @@
 const fs = require('fs');
 const path = require('path');
 const util = require('util');
+const chalk = require('chalk');
 
 const Validator = require('./../src/validator/validator');
 const JASSParser = require('./../src/parser/parser');
+const {ValidatorResult} = require('./../lib/constants');
 
 const cliOptions = {
 	spec: {
@@ -44,8 +46,24 @@ function main() {
 	const {values, positionals} = util.parseArgs(cliConfig);
 	const parsedTrees = JASSParser.parseFiles(positionals);
 	const validator = new Validator(values);
-	validator.checkTrees(parsedTrees);
-	console.log(`Parsed a total of ${validator.nodeCount} nodes.`);
+	const {result, errors, warnings} = validator.checkTrees(parsedTrees);
+	switch (result) {
+		case ValidatorResult.kOk:
+			break;
+		case ValidatorResult.kWarn:
+			process.exitCode = 2;
+			break;
+		case ValidatorResult.kError:
+			process.exitCode = 1;
+			break;
+	}
+	for (const error of errors) {
+		console.error(util.format(error, chalk.red('error')));
+	}
+	for (const warning of warnings) {
+		//console.error(util.format(warning, chalk.yellow('warn')));
+	}
+	console.log(util.format(`%s Parsed a total of %d nodes.`, chalk.green('info'), validator.nodeCount));
 }
 
 main();

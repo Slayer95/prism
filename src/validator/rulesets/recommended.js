@@ -1,72 +1,79 @@
 "use strict";
 
 const assert = require('assert/strict');
+const chalk = require('chalk');
 const util = require('util');
+
+const {renderLintCode} = require('./../../../lib');
 
 module.exports = {
 	handlers: {
 		bad_comparison(node, fileName, funcName, errorCategory, otherType) {
 			switch (errorCategory) {
 				case 'null vs primitive': {
-					this.errors.push(util.format(`%s - Comparing equality of null against %s.`, fileName, otherType));
+					this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Comparing equality of null against %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), otherType));
 					break;
 				}
 				case 'real': {
-					this.errors.push(util.format(`%s - Comparing equality of real against %s.`, fileName, otherType));
+					this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Comparing equality of real against %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), otherType));
 					break;
 				}
 			}
 		},
 		bad_null_assignment(node, fileName, funcName, expectedType, expressionType, initializerDesc) {
-			this.errors.push(util.format(`%s - Expected a primitive (%s), but got null.`, fileName, expectedType));
+			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Expected a primitive (%s), but got null.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), expectedType));
 		},
 		constant_test(node, fileName, funcName, result) {
-			this.errors.push(util.format(`%s - Condition is constant.`, fileName));
+			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Condition is constant.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text)));
 		},
 		exitwhen_non_local(node, fileName, funcName) {
-			this.errors.push(util.format(`%s - Loop exit condition only depends on external state.`, fileName));
+			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Loop exit condition only depends on external state.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text)));
 		},
 		needless_return(node, fileName, funcName) {
-			this.errors.push(util.format(`%s - Needless return statement.`, fileName));
+			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Needless return statement.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text)));
 		},
 		needless_return_multibranch(node, fileName, funcName) {
-			this.errors.push(util.format(`%s - Needless return statement across conditional branches.`, fileName));
+			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Needless return statement across conditional branches.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text)));
 		},
 		noop_code(node, fileName, funcName, nodeType, category) {
-			this.errors.push(util.format(`%s - This instruction does nothing.`, fileName));
+			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s This instruction does nothing.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text)));
 		},
 		recursive_function(node, fileName, funcName, calleeName) {
 			assert.equal(funcName, calleeName);
-			this.warnings.push(util.format(`%s - Function %s calls itself.`, fileName, calleeName, returnType, funcName));
+			this.warnings.push(util.format(`%s:%s\n\n  %s\n\n  %%s Function %s calls itself.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), calleeName));
 		},
 		return_value_discarded(node, fileName, funcName, lifeCycle, calleeName, returnType) {
-			this.warnings.push(util.format(`%s - Function %s returns an %s, but it's discarded in %s.`, fileName, calleeName, returnType, funcName));
+			this.warnings.push(util.format(`%s:%s\n\n  %s\n\n  %%s Function %s returns '%s', but it's discarded in %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), calleeName, returnType, funcName));
 		},
 		test_constant(node, fileName, funcName, category, loopNode) {
 			assert.equal(category, 'loop');
-			this.errors.push(util.format(`%s - Condition is constant across all iterations.`, fileName));
+			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Condition is constant across all iterations.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text)));
 		},
-		test_non_local(node, fileName, funcName, loopNode) {
+		test_non_local(node, fileName, funcName, category, loopNode) {
 			assert.equal(category, 'loop');
-			this.warnings.push(util.format(`%s - Condition inside a loop only depends on external state.`, fileName));
+			this.warnings.push(util.format(`%s:%s\n\n  %s\n\n  %%s Condition inside a loop only depends on external state.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text)));
 		},
-		type_punning(node, fileName, toType, fromType, value, desc) {
-			this.warnings.push(util.format(`%s - Casting %s value %s into %s.`, fileName, fromType, value, toType));
+		number_type_punning(node, fileName, category, toType, fromType, value, desc) {
+			if (category === 'zero') {
+				this.warnings.push(util.format(`%s:%s\n\n  %s\n\n  %%s Casting %s value %s into %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), fromType, value, toType));
+			} else {
+				this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Casting %s value %s into %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), fromType, value, toType));
+			}
 		},
 		unreachable_code(unreachableNode, fileName, funcName, returnsNode) {
-			this.errors.push(util.format(`%s - Unreachable code.`, fileName));
+			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Unreachable code.\n`, chalk.yellow(fileName), chalk.yellow(unreachableNode.startPosition.row), renderLintCode(unreachableNode.text)));
 		},
 		unused_function(node, fileName, funcName, varName) {
-			this.errors.push(util.format(`%s - Function %s is never used.`, fileName, varName));
+			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Function %s is never used.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), varName));
 		},
 		unused_global_variable(node, fileName, funcName, varName) {
-			this.errors.push(util.format(`%s - Global variable %s is never used.`, fileName, varName));
+			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Global variable %s is never used.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), varName));
 		},
 		unused_local_variable(node, fileName, funcName, varName, _) {
-			this.errors.push(util.format(`%s - Local variable %s is never used.`, fileName, varName));
+			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Local variable %s is never used.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), varName));
 		},
 		unused_parameter(node, fileName, funcName,  varName, _) {
-			this.errors.push(util.format(`%s - Parameter %s of %s is unused.`, fileName, varName, funcName));
+			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Parameter %s of %s is unused.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), varName, funcName));
 		},
 	},
 };
