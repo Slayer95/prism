@@ -1445,7 +1445,7 @@ class Validator extends EventEmitter {
 	}
 
 	checkStringSize(node, literal) {
-		if (literal.length >= 512) {
+		if (Buffer.byteLength(literal) >= 1026) { /* counts quotes */
 			this.emitNodeEvent(node, 'string_too_long', value);
 		}
 	}
