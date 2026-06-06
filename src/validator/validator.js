@@ -897,16 +897,14 @@ class Validator extends EventEmitter {
 	}
 
 	getTrivialNumberValue(expressionType, node) {
-		while (node.type === 'ParenthesizedExpression') {
-			node = node.firstNamedChild;
+		if (node.type === 'ParenthesizedExpression' || node.type === 'Literal' || node.type === 'FunctionArgument') {
+			return this.getTrivialNumberValue(expressionType, node.firstNamedChild);
 		}
 
-		if (node.type !== 'Literal') {
-			return null;
-		}
-
-		if (node.type === 'Literal') {
-			node = node.firstNamedChild;
+		if (node.type === 'NegativeExpression') {
+			const innerResult = this.getTrivialNumberValue(expressionType, node.firstNamedChild);
+			if (innerResult === null) return null;
+			return -innerResult;
 		}
 
 		switch (node.type) {
@@ -935,7 +933,7 @@ class Validator extends EventEmitter {
 			}
 
 			default:
-				throw new Error(`Unreachable case. Was ${node.type}`);
+				return null;
 		}
 
 		return null;
@@ -1019,13 +1017,13 @@ class Validator extends EventEmitter {
 			return false;
 		} else if (expressionType === 'integer' && expectedType === 'real') {
 			const value = this.getTrivialNumberValue(expressionType, initializerNode);
-			if (value !== null && (value > 0x1_000_000 || value < -0x1_000_000)) {
-				// Baseline PASS
-				this.emitNodeEvent(node, 'lossy_type_cast', expectedType, expressionType, 'resolved', value, initializerDesc);
-				return false;
-			} else if (value !== null) {
+			if (value === null) {
 				// Baseline PASS
 				this.emitNodeEvent(node, 'lossy_type_cast', expectedType, expressionType, 'unknown', initializerNode.text, initializerDesc);
+				return false;
+			} else if (value > 0x1_000_000 || value < -0x1_000_000) {
+				// Baseline PASS
+				this.emitNodeEvent(node, 'lossy_type_cast', expectedType, expressionType, 'resolved', value, initializerDesc);
 				return false;
 			}
 			return true;
