@@ -9,7 +9,7 @@ const Parser = require('tree-sitter');
 const JASS = require('tree-sitter-jass');
 
 const {ValidatorResult} = require('./../../lib/constants');
-const {internalTypes, isPrimitiveType, isAPINeedsInitialization} = require('./../../lib');
+const {internalTypes, isNumberType, isPrimitiveType, isAPINeedsInitialization} = require('./../../lib');
 
 function findChildNamed(node, name) {
 	const children = node.childrenForFieldName(name);
@@ -782,17 +782,20 @@ class Validator extends EventEmitter {
 				}
 
 				if (op === '==' || op === '!=') {
-					if (lhsType !== 'null' && rhsType !== 'null') {
+					if (lhsType !== 'null' && rhsType !== 'null' && !(isNumberType(lhsType) && isNumberType(rhsType))) {
 						this.validateSameType(node, lhsType, rhsType, `Right-hand-side operand for '${op}'`);
 					}
 					return 'boolean';
 				}
 
 				if (op === '<' || op === '>' || op === '<=' || op === '>=') {
+					/*
 					if (this.validateNumber(node, lhsType, `Left-hand-side operand for '${op}'`) &&
 						this.validateNumber(node, rhsType, `Right-hand-side operand for '${op}'`)) {
 						this.validateSameType(node, lhsType, rhsType, `Right-hand-side operand for '${op}'`);
-					}
+					}*/
+					this.validateNumber(node, lhsType, `Left-hand-side operand for '${op}'`);
+					this.validateNumber(node, rhsType, `Right-hand-side operand for '${op}'`);
 					return 'boolean';
 				}
 
@@ -803,31 +806,33 @@ class Validator extends EventEmitter {
 				if (op === '+') {
 					const lhsOk = this.validateNumberOrString(node, lhsType, `Left-hand-side operand for '${op}'`);
 					const rhsOk = this.validateNumberOrString(node, rhsType, `Right-hand-side operand for '${op}'`);
-					if (lhsOk && rhsOk) {
+					if (!lhsOk || !rhsOk) {
+						return 'unknown';
+					}
+					if (lhsType === rhsType) {
+						return lhsType;
+					}
+					if (lhsType === 'string') {
 						this.validateSameType(node, lhsType, rhsType, `Right-hand-side operand for '${op}'`);
-						if (lhsType !== 'unknown') return lhsType;
-						if (rhsType !== 'unknown') return rhsType;
 						return 'unknown';
-					}
-					if (!lhsOk && !rhsOk) {
+					} else if (rhsType === 'string') {
+						this.validateSameType(node, rhsType, lhsType, `Left-hand-side operand for '${op}'`);
 						return 'unknown';
+					} else {
+						return 'real';
 					}
-					return lhsOk ? lhsType : rhsType;
 				}
 
 				if (op === '-' || op === '*' || op === '/') {
 					const lhsOk = this.validateNumber(node, lhsType, `Left-hand-side operand for '${op}'`);
 					const rhsOk = this.validateNumber(node, rhsType, `Right-hand-side operand for '${op}'`);
-					if (lhsOk && rhsOk) {
-						this.validateSameType(node, lhsType, rhsType, `Right-hand-side operand for '${op}'`);
-						if (lhsType !== 'unknown') return lhsType;
-						if (rhsType !== 'unknown') return rhsType;
-						return 'unknown';
+					if (!lhsOk || !rhsOk) {
+						return lhsOk ? lhsType : (rhsOk ? rhsType : 'unknown');
 					}
-					if (!lhsOk && !rhsOk) {
-						return 'unknown';
+					if (lhsType === rhsType) {
+						return lhsType;
 					}
-					return lhsOk ? lhsType : rhsType;
+					return 'real';
 				}
 
 				return 'unknown';
@@ -867,7 +872,7 @@ class Validator extends EventEmitter {
 			return true;
 		}
 
-		if (expectedType === 'real' && actualType === 'integer') {
+		if (isNumberType(expectedType) && isNumberType(actualType)) {
 			return true;
 		}
 
@@ -888,6 +893,45 @@ class Validator extends EventEmitter {
 		if (node.type !== 'Literal') return null;
 		if (node.text === 'true') return true;
 		if (node.text === 'false') return false;
+		return null;
+	}
+
+	getTrivialNumberValue(expressionType, node) {
+		while (node.type === 'ParenthesizedExpression') {
+			node = node.firstNamedChild;
+		}
+		if (node.type === 'Literal') {
+			node = node.firstNamedChild;
+		}
+		switch (node.type) {
+			case 'OctalInteger': {
+				const value = parseInt(node.text, 8);
+				return value;
+			}
+
+			case 'DecimalInteger': {
+				const value = parseInt(node.text, 10);
+				return value;
+			}
+
+			case 'HexInteger': {
+				const isNegative = node.text.charAt(0) === '-';
+				let offset = (+isNegative);
+				if (node.text.charAt(offset) === '0') {
+					offset += 1;
+				}
+				const value = parseInt(node.text.slice(offset + 1), 16);
+				return value;
+			}
+
+			case 'Real': {
+				return Number(node.text);
+			}
+
+			default:
+				throw new Error(`Unreachable case. Was ${node.type}`);
+		}
+
 		return null;
 	}
 
@@ -936,26 +980,37 @@ class Validator extends EventEmitter {
 			return true;
 		}
 
-		if (expectedType === 'real' && initializerNode.type === 'Literal' && initializerNode.text === '0') {
-			// Integer 0 is IEEE 754 positive 0.0.
-			// This is (ab)used in some Blizzard maps, such as Worm War.
-			// Baseline PASS
-			this.emitNodeEvent(node, 'number_type_punning', 'zero', expectedType, 'integer', initializerNode.text, initializerDesc);
-			return true;
-		}
-
 		const expressionType = this.resolveExpressionType(initializerNode);
 		if (!this.matchResolvedExpressionType(expectedType, expressionType)) {
 			this.emitNodeEvent(node, 'type_mismatch', expectedType, expressionType, initializerDesc);
 			return false;
-		} else if (expressionType === 'null' && isPrimitiveType(expectedType)) {
+		}
+		if (expressionType === expectedType) {
+			return true;
+		}
+		if (expressionType === 'null' && isPrimitiveType(expectedType)) {
 			// Baseline PASS
 			this.emitNodeEvent(node, 'bad_null_assignment', expectedType, expressionType, initializerDesc);
 			return true;
-		} else if ((expressionType === 'real' && expectedType === 'integer') || (expressionType === 'integer' && expectedType === 'real')) {
-			// Baseline PASS
-			this.emitNodeEvent(node, 'number_type_punning', 'non-zero', expectedType, expressionType, initializerNode.text, initializerDesc);
-			return true;
+		}
+		if (node.type === 'ReturnStatement') {
+			if (isNumberType(expressionType) && isNumberType(expectedType)) {
+				const value = this.getTrivialNumberValue(expressionType, initializerNode);
+				if (value !== null && (value === 0 || value === +0.)) {
+					// Integer 0 is IEEE 754 positive 0.0.
+					// This is (ab)used in some Blizzard maps, such as Worm War.
+					// Baseline PASS
+					this.emitNodeEvent(node, 'number_type_punning', expectedType, expressionType, value, initializerDesc);
+				} else {
+					// Baseline PASS
+					this.emitNodeEvent(node, 'number_type_reinterpret', expectedType, expressionType, initializerNode.text, initializerDesc);
+				}
+				return true;
+			}
+		} else if (expressionType === 'real' && expectedType == 'integer') {
+			// Baseline FAIL
+			this.emitNodeEvent(node, 'type_mismatch', expectedType, expressionType, initializerDesc);
+			return false;
 		}
 		return true;
 	}

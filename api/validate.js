@@ -61,7 +61,7 @@ function main() {
 		console.error(util.format(error, chalk.red('error')));
 	}
 	for (const warning of warnings) {
-		//console.error(util.format(warning, chalk.yellow('warn')));
+		console.error(util.format(warning, chalk.yellow('warn')));
 	}
 	console.log(util.format(`%s Parsed a total of %d nodes.`, chalk.green('info'), validator.nodeCount));
 }

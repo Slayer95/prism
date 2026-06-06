@@ -21,7 +21,7 @@ module.exports = {
 			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Function %s expects %d arguments, but was called with %d.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), calleeName, parameterCount, argumentCount));
 		},
 		exitwhen_constant(node, fileName, funcName) {
-			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Loop exit condition is constant across all iterations.`));
+			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Loop exit condition is constant across all iterations.`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text)));
 		},
 		funarg_native(node, fileName, funcName, calleeName) {
 			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Native function %s cannot be an argument for higher-order functions.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), calleeName));
@@ -51,6 +51,9 @@ module.exports = {
 		},
 		missing_return_control_flow(node, fileName, funcName) {
 			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Some branches of function %s do not have a return statement.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), funcName));
+		},
+		number_type_reinterpret(node, fileName, funcName, toType, fromType, value, desc) {
+			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Implicit bit-level reinterpretation of %s value %s into mangled %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), fromType, value, toType));
 		},
 		shadowing(node, fileName, funcName, category, beforeScope, afterScope, variableName) {
 			if (category === 'type') return;

@@ -38,6 +38,9 @@ module.exports = {
 		noop_code(node, fileName, funcName, nodeType, category) {
 			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s This instruction does nothing.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text)));
 		},
+		number_type_punning(node, fileName, funcName, toType, fromType, value, desc) {
+			this.warnings.push(util.format(`%s:%s\n\n  %s\n\n  %%s Casting %s value %d into %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), fromType, value, toType));
+		},
 		recursive_function(node, fileName, funcName, calleeName) {
 			assert.equal(funcName, calleeName);
 			this.warnings.push(util.format(`%s:%s\n\n  %s\n\n  %%s Function %s calls itself.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), calleeName));
@@ -52,13 +55,6 @@ module.exports = {
 		test_non_local(node, fileName, funcName, category, loopNode) {
 			assert.equal(category, 'loop');
 			this.warnings.push(util.format(`%s:%s\n\n  %s\n\n  %%s Condition inside a loop only depends on external state.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text)));
-		},
-		number_type_punning(node, fileName, category, toType, fromType, value, desc) {
-			if (category === 'zero') {
-				this.warnings.push(util.format(`%s:%s\n\n  %s\n\n  %%s Casting %s value %s into %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), fromType, value, toType));
-			} else {
-				this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Casting %s value %s into %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), fromType, value, toType));
-			}
 		},
 		unreachable_code(unreachableNode, fileName, funcName, returnsNode) {
 			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Unreachable code.\n`, chalk.yellow(fileName), chalk.yellow(unreachableNode.startPosition.row), renderLintCode(unreachableNode.text)));
