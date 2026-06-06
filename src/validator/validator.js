@@ -138,7 +138,8 @@ class ControlFlow {
 					variables: new Set(),
 				},
 				'return': {
-					needs: this.validator.state.currentFunctionNameNeedsReturn,
+					needs: this.validator.state.currentFunctionNeedsReturn,
+					type: this.validator.state.currentFunctionNeedsReturn ? this.validator.getFunction(this.validator.state.currentFunctionName)?.returnType : null,
 					always: false,
 					someTimes: false,
 					branchesHave: [0, 0],
@@ -197,10 +198,10 @@ class ControlFlow {
 			}
 			if ((nextSignificantNode = getNextSignificantSibling(node)) !== null) {
 				// Baseline PASS
-				this.validator.emitNodeEvent(node, 'unreachable_code', 'return', nextSignificantNode);
+				this.validator.emitNodeEvent(nextSignificantNode, 'unreachable_code', 'return', node);
 			} else if (!aboutFn.return.needs && parentControlFlowNode === this.currentFnNode) {
 				// Baseline PASS
-				this.validator.emitNodeEvent(node, 'needless_return', nextSignificantNode);
+				this.validator.emitNodeEvent(node, 'needless_return');
 			}
 			return;
 		} else if (node.type === 'ExitWhenStatement') {
@@ -260,17 +261,19 @@ class ControlFlow {
 				if (aboutNode.return.needs) {
 					if (!aboutNode.return.someTimes) {
 						// Baseline FAIL
-						this.validator.emitNodeEvent(node, 'missing_return');
+						this.validator.emitNodeEvent(node, 'missing_return', aboutNode.return.type);
 					} else if (!aboutNode.return.always) {
 						// Baseline PASS
-						this.validator.emitNodeEvent(node, 'missing_return_control_flow');
+						this.validator.emitNodeEvent(node, 'missing_return_control_flow', aboutNode.return.type);
 					}
 				}
 				for (const [varName, varInfo] of this.validator.symbols.local) {
 					if (!aboutNode.variables.read.has(varName)) {
 						if (varInfo.isParameter) {
+							// Baseline PASS
 							this.validator.emitNodeEvent(node, 'unused_parameter', varName, this.validator.currentFunctionName);
 						} else {
+							// Baseline PASS
 							this.validator.emitNodeEvent(node, 'unused_local_variable', varName, this.validator.currentFunctionName);
 						}
 					}
@@ -374,7 +377,7 @@ class ControlFlow {
 				assert.equal(node.type.slice(1), 'IfStatement');
 				if (!getNextSignificantSibling(node)) {
 					// Baseline PASS
-					this.validator.emitNodeEvent(node, 'needless_return_multibranch', nextSignificantNode);
+					this.validator.emitNodeEvent(node, 'needless_return_multibranch');
 				}
 			}
 		}
@@ -389,6 +392,8 @@ class Validator extends EventEmitter {
 		this.result = ValidatorResult.kOk;
 		this.warnings = this.options.quiet ? null : [];
 		this.errors = this.options.quiet ? null : [];
+		this.deferred = [];
+		this.runningDeferred = false;
 		this.currentFile = '';
 		this.currentTree = null;
 		this.history = [];
@@ -410,6 +415,8 @@ class Validator extends EventEmitter {
 		this.result = ValidatorResult.kOk;
 		this.warnings = this.options.quiet ? null : [];
 		this.errors = this.options.quiet ? null : [];
+		this.deferred = [];
+		this.runningDeferred = false;
 		this.currentFile = '';
 		this.currentTree = null;
 		this.history = [];
@@ -440,6 +447,19 @@ class Validator extends EventEmitter {
 		return null;
 	}
 
+	deferEvent(...rest) {
+		if (this.runningDeferred) return false;
+		this.deferred.push([...rest]);
+		return true;
+	}
+
+	runDeferred() {
+		this.runningDeferred = true;
+		for (const deferredEvent of this.deferred) {
+			this.emit(deferredEvent[0], ...deferredEvent.slice(1));
+		}
+	}
+
 	emitNodeEvent(node, eventName, ...rest) {
 		const funcName = this.state.currentFunctionName || '~';
 		if (!SILENCED_EVENTS.includes(eventName)) {
@@ -449,7 +469,7 @@ class Validator extends EventEmitter {
 				}
 			}
 		}
-		return this.emit(this.currentFile, funcName, node, eventName, ...rest);
+		return this.emit(eventName, node, this.currentFile, funcName, ...rest);
 	}
 
 	getInternalTypes() {
@@ -472,9 +492,11 @@ class Validator extends EventEmitter {
 		for (const [symbolName, symbolInfo] of this.symbols.global) {
 			if (symbolInfo.isUsed) continue;
 			if (symbolInfo.type === 'code') {
-				this.emitNodeEvent(symbolInfo.node, 'unused_function', symbolInfo.file, symbolName);
+				// Baseline PASS
+				this.emit(symbolInfo.node, symbolInfo.file, '~', 'unused_function', symbolName);
 			} else {
-				this.emitNodeEvent(symbolInfo.node, 'unused_global_variable', symbolInfo.file, symbolName);
+				// Baseline PASS
+				this.emit(symbolInfo.node, symbolInfo.file, '~', 'unused_global_variable', symbolName);
 			}
 		}
 	}
@@ -525,6 +547,8 @@ class Validator extends EventEmitter {
 	checkTree(filePath, cst, source) {
 		this.checkTreeInner(filePath, cst, source);
 		this.checkGlobals();
+		this.runDeferred();
+		this.emit('end');
 
 		const out = this.getOutput();
 		this.reset();
@@ -536,6 +560,8 @@ class Validator extends EventEmitter {
 			this.checkTreeInner(filePath, cst, source);
 		}
 		this.checkGlobals();
+		this.runDeferred();
+		this.emit('end');
 
 		const out = this.getOutput();
 		this.reset();
@@ -697,7 +723,7 @@ class Validator extends EventEmitter {
 				const inner = node.firstNamedChild;
 				const innerType = this.resolveExpressionType(inner);
 				if (innerType !== 'unknown' && innerType !== 'boolean') {
-					this.emitNodeEvent('type_mismatch', 'boolean', innerType, `Operand of ${node.type}`);
+					this.emitNodeEvent(node, 'type_mismatch', 'boolean', innerType, `Operand of ${node.type}`);
 				}
 				return 'boolean';
 			}
@@ -881,6 +907,7 @@ class Validator extends EventEmitter {
 		if (expectedType === 'real' && initializerNode.type === 'Literal' && initializerNode.text === '0') {
 			// Integer 0 is IEEE 754 positive 0.0.
 			// This is (ab)used in some Blizzard maps, such as Worm War.
+			// Baseline PASS
 			this.emitNodeEvent(node, 'type_punning', expectedType, 'integer', '0', initializerDesc);
 			return true;
 		}
@@ -890,6 +917,7 @@ class Validator extends EventEmitter {
 			this.emitNodeEvent(node, 'type_mismatch', expectedType, expressionType, initializerDesc);
 			return false;
 		} else if (expressionType === 'null' && isPrimitiveType(expectedType)) {
+			// Baseline PASS
 			this.emitNodeEvent(node, 'bad_null_assignment', expectedType, expressionType, initializerDesc);
 			return true;
 		}
@@ -937,7 +965,8 @@ class Validator extends EventEmitter {
 				const declName = findChildNamed(node, 'name').text;
 				const superName = findChildNamed(node, 'super').text;
 				if (this.symbols.types.has(declName)) {
-					this.emitNodeEvent(node, 'shadowing', 'type', declName);
+					// Baseline FAIL
+					this.emitNodeEvent(node, 'shadowing', 'type', 'global', 'global', declName);
 				}
 				if (this.symbols.types.has(superName)) {
 					this.registerType(node, declName, superName);
@@ -948,18 +977,21 @@ class Validator extends EventEmitter {
 				const declName = findChildNamed(node, 'name').text;
 				if (this.symbols.global.has(declName)) {
 					// Baseline FAIL
-					this.emitNodeEvent(node, 'shadowing', 'global', declName);
+					this.emitNodeEvent(node, 'shadowing', 'function', 'global', 'global', declName);
 				}
 				const symbol = this.registerFunction(node, declName)
 
 				if (node.parent.type === 'FunctionDeclaration') {
 					this.state.currentFunctionName = declName;
-					this.state.currentFunctionNameNeedsReturn = symbol.returnType !== null;
+					this.state.currentFunctionNeedsReturn = symbol.returnType !== null;
 
 					for (const [declType, declName] of symbol.parameters) {
 						if (this.symbols.local.has(declName)) {
 							// Baseline PASS
-							this.emitNodeEvent(node, 'shadowing', 'parameter', declName);
+							this.emitNodeEvent(node, 'shadowing', 'parameter', 'local', 'local', declName);
+						} else if (this.symbols.global.has(declName)) {
+							// Baseline PASS
+							this.emitNodeEvent(node, 'shadowing', 'parameter', 'global', 'local', declName);
 						}
 						this.registerLocalVariableFromParameter(node.parent, declName, declType);
 					}
@@ -975,9 +1007,10 @@ class Validator extends EventEmitter {
 				const initializerNode = ensureKind(node.lastChild, 'Initializer');
 				if (this.symbols.global.has(declName)) {
 					// Baseline FAIL
-					this.emitNodeEvent(node, 'shadowing', 'global', declName);
+					this.emitNodeEvent(node, 'shadowing', 'variable', 'global', 'global', declName);
 				}
 				if (isArrayType(declTypeNode) && this.symbols.types.get(atomicType)?.onlyAtomic) {
+					// Baseline FAIL
 					this.emitNodeEvent(node, 'array_unsupported', atomicType);
 				}
 				this.registerGlobalVariable(node, declName, declTypeNode)
@@ -995,12 +1028,13 @@ class Validator extends EventEmitter {
 				const initializerNode = ensureKind(node.lastChild, 'Initializer');
 				if (this.symbols.local.has(declName)) {
 					// Baseline PASS
-					this.emitNodeEvent(node, 'shadowing', 'local', declName);
+					this.emitNodeEvent(node, 'shadowing', 'variable', 'local', 'local', declName);
 				} else if (this.symbols.global.has(declName)) {
 					// Baseline PASS
-					this.emitNodeEvent(node, 'shadowing', 'global', declName);
+					this.emitNodeEvent(node, 'shadowing', 'variable', 'global', 'local', declName);
 				}
 				if (isArrayType(declTypeNode) && this.symbols.types.get(atomicType)?.onlyAtomic) {
+					// Baseline FAIL
 					this.emitNodeEvent(node, 'array_unsupported', atomicType);
 				}
 				this.prepareRegisterLocalVariable(node, declName, declTypeNode);
@@ -1018,10 +1052,12 @@ class Validator extends EventEmitter {
 					const argumentsNode = ensureKind(node.lastNamedChild, 'FunctionArgumentList');
 					if (argumentsNode === null) {
 						if (declaredSymbol.parameters.length !== 0) {
-							this.emitNodeEvent(node, 'call_bad_arity', calleeName, declaredSymbol.parameters.length, 0);
+							// Baseline FAIL
+							this.emitNodeEvent(node, 'call_bad_arity', 'eager', calleeName, declaredSymbol.parameters.length, 0);
 						}
 					} else if (argumentsNode.namedChildCount !== declaredSymbol.parameters.length) {
-						this.emitNodeEvent(node, 'call_bad_arity', calleeName, declaredSymbol.parameters.length, argumentsNode.namedChildCount);
+						// Baseline FAIL
+						this.emitNodeEvent(node, 'call_bad_arity', 'eager', calleeName, declaredSymbol.parameters.length, argumentsNode.namedChildCount);
 					} else {
 						const callArguments = argumentsNode.namedChildren;
 						for (let i = 0; i < callArguments.length; i++) {
@@ -1032,10 +1068,11 @@ class Validator extends EventEmitter {
 					}
 					if ((declaredSymbol.returnType === null) !== (node.parent.type === 'CallStatement')) {
 						if (declaredSymbol.returnType === null) {
+							// Baseline FAIL
 							this.emitNodeEvent(node, 'void_call_as_expression', calleeName);
 						} else {
 							// Baseline PASS
-							this.emitNodeEvent(node, 'return_value_discarded', calleeName);
+							this.emitNodeEvent(node, 'return_value_discarded', 'eager', calleeName, declaredSymbol.returnType);
 						}
 					}
 					if (this.state.currentFunctionName === calleeName) {
@@ -1061,11 +1098,19 @@ class Validator extends EventEmitter {
 						if (subCalleeNode.type === 'Literal' && subCalleeNode.namedChildren[0].type === 'String') {
 							const subCalleeName = subCalleeNode.namedChildren[0].text.slice(1, -1);
 							const subCalleeSymbol = this.getFunction(subCalleeName);
-							if (subCalleeSymbol && subCalleeSymbol.type === 'code') {
-								subCalleeSymbol.isUsed = true;
-							} else {
+							if (!subCalleeSymbol || subCalleeSymbol.type !== 'code') {
 								// Baseline PASS
 								this.emitNodeEvent(node, 'function_non_existent', 'deferred', subCalleeName);
+							} else {
+								if (subCalleeSymbol.parameters.length > 0) {
+									// Baseline PASS
+									this.emitNodeEvent(node, 'call_bad_arity', 'deferred', subCalleeName, subCalleeSymbol.parameters.length, 0);
+								}
+								if (subCalleeSymbol.returnType) {
+									// Baseline PASS
+									this.emitNodeEvent(node, 'return_value_discarded', 'deferred', subCalleeName, subCalleeSymbol.returnType);
+								}
+								subCalleeSymbol.isUsed = true;
 							}
 						}
 					}
@@ -1077,12 +1122,19 @@ class Validator extends EventEmitter {
 				const isArraySet = bindNode.type === 'ArrayElement';
 				const bindName = isArraySet ? bindNode.firstChild.text : bindNode.text;
 				const declaredSymbol = this.getSymbol(bindName);
-				if (!declaredSymbol) {
+				/*
+				if (!declaredSymbol) 
+					// Baseline FAIL
 					this.emitNodeEvent(node, 'binding_non_existent', bindName);
-				} else if (declaredSymbol.isConstant) {
-					this.emitNodeEvent(node, 'binding_constant', bindName);
-				} else {
-					this.validateNodeType(node, declaredSymbol.type, node.lastChild, `Value assigned to '${bindName}'`)
+				}
+				*/
+				if (declaredSymbol) {
+					if (declaredSymbol.isConstant) {
+						// Baseline FAIL
+						this.emitNodeEvent(node, 'binding_constant', bindName);
+					} else {
+						this.validateNodeType(node, declaredSymbol.type, node.lastChild, `Value assigned to '${bindName}'`)
+					}
 				}
 				break;
 			}
@@ -1092,6 +1144,7 @@ class Validator extends EventEmitter {
 				const declaredSymbol = this.getFunction(funcName);
 				if (declaredSymbol) {
 					if (declaredSymbol.parameters.length > 0) {
+						// Baseline PASS, but (untested) apparently it desyncs in old versions or something
 						this.emitNodeEvent(node, 'funarg_not_nullary', funcName);
 					} else if (declaredSymbol.isNative) {
 						// Baseline PASS, but segfaults
@@ -1099,7 +1152,8 @@ class Validator extends EventEmitter {
 					} else if (declaredSymbol.returnType !== 'boolean') {
 						const higherOrderName = findChildNamed(node.closest('CallExpression'), 'callee').text;
 						if (higherOrderName === 'Condition' || higherOrderName === 'Filter') {
-							this.emitNodeEvent(node, 'higher_order_type_mismatch', 'boolean', declaredSymbol.returnType, higherOrderName, funcName);
+							// Baseline PASS
+							this.emitNodeEvent(node, 'higher_order_type_mismatch', 'boolean', declaredSymbol.returnType ?? 'nothing', higherOrderName, funcName);
 						}
 					}
 				}
@@ -1108,6 +1162,7 @@ class Validator extends EventEmitter {
 
 			case 'TypeReference': {
 				if (!this.symbols.types.has(node.text)) {
+					// Baseline PASS
 					this.emitNodeEvent(node, 'type_missing', node.text);
 				}
 				break;
@@ -1139,17 +1194,24 @@ class Validator extends EventEmitter {
 				const isArrayAccess = node.parent.type === 'ArrayElement' && (node === node.parent.firstNamedChild);
 				const declaredSymbol = this.getSymbol(variableName);
 				if (!declaredSymbol) {
+					// Baseline FAIL
 					this.emitNodeEvent(node, 'variable_non_existent', variableName);
 				} else if (declaredSymbol.isTDZ) {
 					if (this.getSymbol(variableName, true)) {
 						// Baseline PASS - but it crashes the thread.
-						this.emitNodeEvent(node, 'tdz_runtime_exception', variableName);
+						this.emitNodeEvent(node, 'tdz_exception', 'deferred', variableName);
 					} else {
 						// Baseline FAIL
-						this.emitNodeEvent(node, 'tdz_compile_exception', variableName);
+						this.emitNodeEvent(node, 'tdz_exception', 'eager', variableName);
 					}
 				} else if (declaredSymbol.isArray && !isArrayAccess) {
-					this.emitNodeEvent(node, 'array_access_required', variableName);
+					// Baseline FAIL
+					const isWrite = node.parent.type === 'SetStatement' && node.parent.firstNamedChild === node;
+					if (isWrite) {
+						this.emitNodeEvent(node, 'array_access_required', 'write', variableName);
+					} else {
+						this.emitNodeEvent(node, 'array_access_required', 'read', variableName);
+					}
 				}
 				if (declaredSymbol.isGlobal) {
 					declaredSymbol.isUsed = true;
@@ -1164,6 +1226,7 @@ class Validator extends EventEmitter {
 				const declaredSymbol = this.getSymbol(arrayName);
 				if (declaredSymbol) {
 					if (!declaredSymbol.isArray) {
+						// Baseline FAIL
 						this.emitNodeEvent(node, 'array_access_incompatible', arrayName);
 					} else if (this.validateNodeType(node, 'integer', indexNode, `Index for '${arrayName}'`)) {
 						if (indexNode.type === 'Literal' && indexNode.text.startsWith('-')) {
@@ -1180,16 +1243,12 @@ class Validator extends EventEmitter {
 			}
 
 			case 'FunctionBody': {
-				//if (this.state.currentFunctionNameNeedsReturn) {
 				this.controlFlow.enter(node);
-				//}
 				break;
 			}
 
 			case 'LoopStatement': {
-				//if (this.state.currentFunctionNameNeedsReturn) {
 				this.controlFlow.enter(node);
-				//}
 				break;
 			}
 
@@ -1210,24 +1269,24 @@ class Validator extends EventEmitter {
 							// NOTE: exitwhen true is the only "break" in JASS.
 							const nextInstruction = getNextSignificantSibling(node.parent);
 							if (nextInstruction) {
-								this.emitNodeEvent(node, 'unreachable_code', 'exitwhen', nextInstruction);
+								// Baseline PASS
+								this.emitNodeEvent(nextInstruction, 'unreachable_code', 'exitwhen', node);
 							}
 						} else {
+							// Baseline PASS
 							this.emitNodeEvent(node, 'noop_code', 'exitwhen');
 						}
 					} else {
-						this.emitNodeEvent(node, 'constant_test', 'if', node.text);
+						// Baseline PASS
+						this.emitNodeEvent(node, 'constant_test', 'if', trivialValue);
 					}
 				}
-				// TODO: loop_constant_test
 				break;
 			}
 
 			case 'RElseStatement':
 			case 'LElseStatement': {
-				//if (this.state.currentFunctionNameNeedsReturn) {
 				this.controlFlow.enter(node);
-				//}
 				break;
 			}
 
@@ -1237,18 +1296,16 @@ class Validator extends EventEmitter {
 			}
 
 			case 'ReturnStatement': {
-				//if (this.state.currentFunctionNameNeedsReturn) {
 				this.controlFlow.enter(node);
-				//}
 				const returnsSomething = node.namedChildCount > 0;
 				const expectedReturnType = this.getFunction(this.state.currentFunctionName)?.returnType;
 				if (returnsSomething === (expectedReturnType === null)) {
 					if (expectedReturnType === null) {
 						// Baseline FAIL
-						this.emitNodeEvent(node, 'return_value_unexpected', 'return', node.firstNamedChild);
+						this.emitNodeEvent(node, 'return_value_unexpected', node.firstNamedChild);
 					} else {
 						// Baseline FAIL
-						this.emitNodeEvent(node, 'return_value_required', 'return', node.firstNamedChild);
+						this.emitNodeEvent(node, 'return_value_required', expectedReturnType);
 					}
 				} else if (expectedReturnType !== null) {
 					this.validateNodeType(node, expectedReturnType, node.firstNamedChild, `Return value from ${this.state.currentFunctionName}`);
@@ -1266,13 +1323,16 @@ class Validator extends EventEmitter {
 					const rhsType = this.resolveExpressionType(rhsNode);
 					if (lhsType !== rhsType) {
 						if (lhsType === 'null' && isPrimitiveType(rhsType)) {
+							// Baseline PASS
 							this.emitNodeEvent(node, 'bad_comparison', 'null vs primitive', rhsType);
 						} else if (isPrimitiveType(lhsType) && rhsType === 'null') {
+							// Baseline PASS
 							this.emitNodeEvent(node, 'bad_comparison', 'null vs primitive', lhsType);
 						}
 					}
 					if (lhsType === 'real' || rhsType === 'real') {
-						this.emitNodeEvent(node, 'bad_comparison', 'real', rhsNode);
+						// Baseline PASS
+						this.emitNodeEvent(node, 'bad_comparison', 'real', lhsType !== 'real' ? lhsType : rhsType);
 					}
 				}
 
@@ -1335,9 +1395,7 @@ class Validator extends EventEmitter {
 			}
 
 			case 'LoopStatement': {
-				//if (this.state.currentFunctionNameNeedsReturn) {
 				this.controlFlow.leave(node);
-				//}
 				break;
 			}
 
@@ -1345,24 +1403,18 @@ class Validator extends EventEmitter {
 			case 'LIfStatement': 
 			case 'RElseIfStatement':
 			case 'LElseIfStatement': {
-				//if (this.state.currentFunctionNameNeedsReturn) {
 				this.controlFlow.leave(node);
-				//}
 				break;
 			}
 
 			case 'RElseStatement':
 			case 'LElseStatement': {
-				//if (this.state.currentFunctionNameNeedsReturn) {
 				this.controlFlow.leave(node);
-				//}
 				break;
 			}
 
 			case 'ReturnStatement': {
-				//if (this.state.currentFunctionNameNeedsReturn) {
 				this.controlFlow.leave(node);
-				//}
 				break;
 			}
 			case 'ExitWhenStatement': {
@@ -1376,9 +1428,7 @@ class Validator extends EventEmitter {
 			}
 
 			case 'FunctionBody': {
-				//if (this.state.currentFunctionNameNeedsReturn) {
 				this.controlFlow.leave(node);
-				//}
 				break;
 			}
 		}
@@ -1386,11 +1436,13 @@ class Validator extends EventEmitter {
 
 	checkInt32Overflow(node, value) {
 		if ((value | 0) !== value) {
+			// Baseline PASS
 			this.emitNodeEvent(node, 'int32_overflow', value);
 		}
 	}
 
 	checkFloat32Overflow(node, literal) {
+		// TODO: float32_overflow
 		let index = 0;
 		let result = 0n;
 		
@@ -1405,7 +1457,8 @@ class Validator extends EventEmitter {
 
 			result = result * 10n + digit;
 			if (result > INT32_MAX) {
-				return false;
+				this.emitNodeEvent(node, 'float32_overflow', +literal, literal);
+				return;
 			}
 		}
 
@@ -1423,7 +1476,8 @@ class Validator extends EventEmitter {
 
 			frac = frac * 10n + digit;
 			if (frac > INT32_MAX) {
-				return false;
+				this.emitNodeEvent(node, 'float32_overflow', +literal, literal);
+				return;
 			}
 
 			if (!pow10Overflowed) {
@@ -1434,11 +1488,9 @@ class Validator extends EventEmitter {
 			}
 
 			if (pow10Overflowed) {
-				if (frac !== 0n) {
-					return false;
-				}
-				if (nfrac === 32) {
-					return false;
+				if (frac !== 0n || nfrac === 32) {
+					this.emitNodeEvent(node, 'float32_overflow', +literal, literal);
+					return;
 				}
 			}
 		}
@@ -1446,6 +1498,7 @@ class Validator extends EventEmitter {
 
 	checkStringSize(node, literal) {
 		if (Buffer.byteLength(literal) >= 1026) { /* counts quotes */
+			// Baseline PASS
 			this.emitNodeEvent(node, 'string_too_long', value);
 		}
 	}

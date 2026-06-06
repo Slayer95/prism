@@ -1,9 +1,5 @@
 "use strict";
 
-const tsNodeOptions = {}
-
-require('ts-node').register(tsNodeOptions);
-
 const fs = require('fs');
 const path = require('path');
 const util = require('util');
