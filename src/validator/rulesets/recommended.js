@@ -38,6 +38,9 @@ module.exports = {
 		exitwhen_non_local(node, fileName, funcName) {
 			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Loop exit condition only depends on external state.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text)));
 		},
+		local_handle_not_nulled(node, fileName, funcName, varName, varType, lastValueNode) {
+			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Local handle '%s' of type '%s' is not nulled.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), varName, varType));
+		},
 		lossy_type_cast(node, fileName, funcName, toType, fromType, certainty, value, desc) {
 			if (certainty !== 'unknown') return;
 			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Casting %s value %d into %s may lose precision.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), fromType, value, toType));
@@ -62,7 +65,7 @@ module.exports = {
 			if (IGNORED_RETURN_TYPES.includes(returnType)) return;
 			assert.notEqual(this.controlFlow.aboutFunctions.size, 0);
 			const aboutFn = this.controlFlow.aboutFunctions.get(calleeName);
-			if (!aboutFn /* Native function */ || !aboutFn.return.global /* Function writes to a global variable */) {
+			if (!aboutFn /* Native function */ || !aboutFn.return.global /* Return is teed to a global variable */) {
 				this.warnings.push(util.format(`%s:%s\n\n  %s\n\n  %%s Function %s returns '%s', but it's discarded in %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), calleeName, returnType, funcName));
 			}
 		},
@@ -83,10 +86,10 @@ module.exports = {
 		unused_global_variable(node, fileName, funcName, varName) {
 			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Global variable %s is never used.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), varName));
 		},
-		unused_local_variable(node, fileName, funcName, varName, _) {
+		unused_local_variable(node, fileName, funcName, varName) {
 			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Local variable %s is never used.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), varName));
 		},
-		unused_parameter(node, fileName, funcName,  varName, _) {
+		unused_parameter(node, fileName, funcName,  varName) {
 			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Parameter %s of %s is unused.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), varName, funcName));
 		},
 	},

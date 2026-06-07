@@ -104,6 +104,10 @@ function isFunctionArgument(node) {
 	return getUnwrapParensAncestor(node.parent).type === 'FunctionArgument';
 }
 
+function isVariableReferenceAssignment(node) {
+	return node.parent.type === 'SetStatement' && node.parent.firstNamedChild === node;
+}
+
 function extractNthArgument(argumentsNode, n) {
 	if (n >= argumentsNode.namedChildCount) return null;
 	let fnArgument = argumentsNode.firstNamedChild;
@@ -112,6 +116,15 @@ function extractNthArgument(argumentsNode, n) {
 		n--;
 	}
 	return getUnwrapParensDescendant(fnArgument.firstNamedChild);
+}
+
+function extractValueNodeFromSetStatement(node) {
+	return getUnwrapParensDescendant(node.lastNamedChild.lastNamedChild);
+}
+
+function extractValueNodeFromDeclaration(node) {
+	if (node.lastNamedChild.type !== 'Initializer') return null;
+	return node.lastNamedChild.lastNamedChild;
 }
 
 function setAddMany(targetSet, iterable) {
@@ -141,6 +154,16 @@ class TypeInfo {
 	}
 }
 
+class HandleTracker {
+	constructor() {
+		this.lastSetNode = null;
+		this.nulled = {
+			branches: 0,
+			always: false,
+		};
+	}
+}
+
 class ControlFlow {
 	constructor(validator) { 
 		this.validator = validator;
@@ -161,6 +184,7 @@ class ControlFlow {
 				this.currentLoopNode = node;
 			}
 			this.about.set(node, {
+				branchCount: 1,
 				'exitwhen': {
 					someTimes: false,
 					variables: new Set(),
@@ -169,9 +193,9 @@ class ControlFlow {
 					needs: this.validator.state.currentFunctionNeedsReturn,
 					type: this.validator.state.currentFunctionNeedsReturn ? this.validator.getFunction(this.validator.state.currentFunctionName)?.returnType : null,
 					always: false,
+					branchesHave: 0,
 					someTimes: false,
 					global: this.validator.state.currentFunctionNeedsReturn,
-					branchesHave: [0, 0],
 					node: null,
 					nodes: [],
 				},
@@ -181,7 +205,7 @@ class ControlFlow {
 					written: new Set(),
 				},
 				'handles': {
-					finalSetNode: null,
+					local: new Map(),
 				},
 			});
 			if (node.type === 'FunctionBody') {
@@ -216,9 +240,9 @@ class ControlFlow {
 	onEnter(node, parentControlFlowNode) {
 		const loopAgnosticType = node.type.slice(1);
 		if (loopAgnosticType === 'IfStatement') {
-			this.about.get(node).return.branchesHave[1] = 2;
+			this.about.get(node).branchCount = 2;
 		} else if (loopAgnosticType.startsWith('ElseIf')) {
-			this.about.get(parentControlFlowNode).return.branchesHave[1]++;
+			this.about.get(parentControlFlowNode).branchCount++;
 		}
 	}
 
@@ -293,13 +317,60 @@ class ControlFlow {
 					if (!aboutNode.variables.read.has(varName)) {
 						if (varInfo.isParameter) {
 							// Baseline PASS
-							this.validator.emitNodeEvent(node, 'unused_parameter', varName, this.validator.currentFunctionName);
+							this.validator.emitNodeEvent(node, 'unused_parameter', varName);
 						} else {
 							// Baseline PASS
-							this.validator.emitNodeEvent(node, 'unused_local_variable', varName, this.validator.currentFunctionName);
+							this.validator.emitNodeEvent(node, 'unused_local_variable', varName);
 						}
 					}
+
+					if (!varInfo.isParameter && !isPrimitiveType(varInfo.type) && !varInfo.isArray) {
+						const handleTracker = aboutNode.handles.local.get(varName);
+						if (!handleTracker) {
+							const lastSetValueExpression = extractValueNodeFromDeclaration(varInfo.node);
+							if (lastSetValueExpression === null) {
+								// Declared but never initialized.
+								// Baseline PASS
+								this.validator.emitNodeEvent(varInfo.node, 'local_handle_not_nulled', varName, varInfo.type, node, lastSetValueExpression);
+							} else if (lastSetValueExpression.text !== 'null') {
+								// Initialized to something, yet never nulled afterwards.
+								// Baseline PASS
+								this.validator.emitNodeEvent(varInfo.node, 'local_handle_not_nulled', varName, varInfo.type, node, lastSetValueExpression);
+							}
+						} else if (handleTracker.lastSetNode.type === 'SetStatement') {
+							const lastSetValueExpression = extractValueNodeFromSetStatement(handleTracker.lastSetNode);
+							if (lastSetValueExpression.text !== 'null') {
+								// Baseline PASS
+								this.validator.emitNodeEvent(handleTracker.lastSetNode, 'local_handle_not_nulled', varName, varInfo.type, node, lastSetValueExpression);
+							}
+						} else {
+							// Currently assuming that this is an always-null IfStatement.
+							//this.validator.emitNodeEvent(node, 'local_handle_not_nulled', varName, varInfo.type, node);
+							//console.log(`${this.validator.state.currentFunctionName} - ${handleTracker.lastSetNode.type} (${handleTracker.lastSetNode.text}) always nulls ${varName}`);
+						}
+					}
+					/*
+					for (const [varName, {lastSetNode}] of aboutNode.handles.local) {
+						if (lastSetNode.type === 'SetStatement') {
+							const lastSetExpression = extractValueNodeFromSetStatement(lastSetNode);
+							if (lastSetExpression.text === 'null') {
+								const thisHandleTracker = aboutNode.handles.local.get(varName);
+								thisHandleTracker.nulled.branches++;
+								thisHandleTracker.nulled.always = (thisHandleTracker.nulled.branches === aboutNode.branchCount);
+								if (thisHandleTracker.nulled.always) {
+									const aboutAncestor = this.about.get(parentControlFlowNode);
+									aboutAncestor.handles.local.get(varName).lastSetNode = node;
+								}
+							}
+						} else {
+							// Control flow node that always nulls
+							const aboutAncestor = this.about.get(parentControlFlowNode);
+							aboutAncestor.handles.local.get(varName).lastSetNode = node;
+						}
+					}
+					*/
 				}
+				
 				break;
 			}
 
@@ -346,6 +417,9 @@ class ControlFlow {
 						aboutAncestor.return.always = true;
 					}
 				}
+
+				// TODO: handle tracker
+				// Gotta track last SetStatement -> ExitWhen -> last SetStatement -> ExitWhen
 				break;
 			}
 
@@ -353,10 +427,9 @@ class ControlFlow {
 			case 'LIfStatement': {
 				// This flag is only set by the main RConsequent|LConsequent node
 				if (aboutNode.return.always) {
-					aboutNode.return.branchesHave[0]++;
+					aboutNode.return.branchesHave++;
 				}
-
-				aboutNode.return.always = (aboutNode.return.branchesHave[0] === aboutNode.return.branchesHave[1]);
+				aboutNode.return.always = (aboutNode.return.branchesHave === aboutNode.branchCount);
 				if (aboutNode.return.always) {
 					const aboutAncestor = this.about.get(parentControlFlowNode);
 					aboutAncestor.return.always = true;
@@ -365,6 +438,35 @@ class ControlFlow {
 					const aboutAncestor = this.about.get(parentControlFlowNode);
 					aboutAncestor.exitwhen.someTimes = true;
 				}
+
+				// These are also set by the main RConsequent|LConsequent node
+				for (const [varName, thisHandleTracker] of aboutNode.handles.local) {
+					if (thisHandleTracker.lastSetNode.type === 'SetStatement') {
+						const lastSetExpression = extractValueNodeFromSetStatement(thisHandleTracker.lastSetNode);
+						if (lastSetExpression.text === 'null') {
+							thisHandleTracker.nulled.branches++;
+							thisHandleTracker.nulled.always = (thisHandleTracker.nulled.branches === aboutNode.branchCount);
+							if (thisHandleTracker.nulled.always) {
+								const aboutAncestor = this.about.get(parentControlFlowNode);
+								let ancestorHandleTracker = aboutAncestor.handles.local.get(varName);
+								if (!ancestorHandleTracker) {
+									ancestorHandleTracker = new HandleTracker();
+									aboutAncestor.handles.local.set(varName, ancestorHandleTracker);
+								}
+								ancestorHandleTracker.lastSetNode = node;
+							}
+						}
+					} else {
+						// Control flow node that always nulls
+						const aboutAncestor = this.about.get(parentControlFlowNode);
+						let handleTracker = aboutAncestor.handles.local.get(varName);
+						if (!handleTracker) {
+							handleTracker = new HandleTracker();
+							aboutAncestor.handles.local.set(varName, handleTracker);
+						}
+						handleTracker.lastSetNode = node;
+					}
+				}
 				break;
 			}
 
@@ -372,14 +474,24 @@ class ControlFlow {
 			case 'LElseIfStatement':
 			case 'RElseStatement':
 			case 'LElseStatement': {
+				const aboutAncestor = this.about.get(parentControlFlowNode);
 				if (aboutNode.return.always) {
-					const aboutAncestor = this.about.get(parentControlFlowNode);
-					aboutAncestor.return.branchesHave[0]++;
+					aboutAncestor.return.branchesHave++;
 					aboutNode.return.always = false;
 				}
 				if (aboutNode.exitwhen.someTimes) {
-					const aboutAncestor = this.about.get(parentControlFlowNode);
 					aboutAncestor.exitwhen.someTimes = true;
+				}
+				for (const [varName, {lastSetNode}] of aboutNode.handles.local) {
+					const lastSetExpression = extractValueNodeFromSetStatement(lastSetNode);
+					if (lastSetExpression.text === 'null') {
+						let handleTracker = aboutAncestor.handles.local.get(varName);
+						if (!handleTracker) {
+							handleTracker = new HandleTracker();
+							aboutAncestor.handles.local.set(varName, handleTracker);
+						}
+						handleTracker.nulled.branches++;
+					}
 				}
 				break;
 			}
@@ -407,11 +519,12 @@ class ControlFlow {
 
 	onLeaveVariable(node, parentControlFlowNode, ioEntry, varInfo) {
 		const aboutFnAncestor = this.about.get(this.currentFnNode);
+		const isAssignment = isVariableReferenceAssignment(node);
 		if (parentControlFlowNode.type === 'Test') {
 			const aboutAncestor = this.about.get(parentControlFlowNode);
 			aboutAncestor.variables.read.add(ioEntry);
 			aboutFnAncestor.variables.read.add(ioEntry);
-		} else if (node.parent.type === 'SetStatement' && node.parent.firstNamedChild === node) {
+		} else if (isAssignment) {
 			if (this.currentLoopNode) {
 				const aboutLoopAncestor = this.about.get(this.currentLoopNode);
 				aboutLoopAncestor.variables.written.add(ioEntry);
@@ -420,11 +533,25 @@ class ControlFlow {
 		} else {
 			aboutFnAncestor.variables.read.add(ioEntry);
 		}
-		if (varInfo && !isPrimitiveType(varInfo.type) && isFunctionArgument(node)) {
-			aboutFnAncestor.variables.written.add(ioEntry);
-			if (this.currentLoopNode) {
-				const aboutLoopAncestor = this.about.get(this.currentLoopNode);
-				aboutLoopAncestor.variables.written.add(ioEntry);
+
+		// Track handles
+		if (varInfo && !isPrimitiveType(varInfo.type)) {
+			const aboutAncestor = this.about.get(parentControlFlowNode);
+			if (isFunctionArgument(node)) {
+				aboutFnAncestor.variables.written.add(ioEntry);
+				if (this.currentLoopNode) {
+					const aboutLoopAncestor = this.about.get(this.currentLoopNode);
+					aboutLoopAncestor.variables.written.add(ioEntry);
+				}
+			}
+			if (isAssignment && !varInfo.isGlobal && !varInfo.isParameter && !varInfo.isArray) {
+				let handleTracker = aboutAncestor.handles.local.get(varInfo.name);
+				if (!handleTracker) {
+					handleTracker = new HandleTracker();
+					aboutAncestor.handles.local.set(varInfo.name, handleTracker);
+				}
+        // FIXME: It's possible that an earlier IfStatement already returned without nulling!
+				handleTracker.lastSetNode = node.parent;
 			}
 		}
 	}
@@ -650,6 +777,7 @@ class Validator extends EventEmitter {
 		const isConstant = parentNode.firstNamedChild.type === 'ConstantAttribute';
 		const isNative = parentNode.type === 'NativeDeclaration';
 		const symbol = {
+			name: symbolName,
 			node: node,
 			type: 'code',
 			parameters: symbolHelpers.extractParameters(findChildNamed(node, 'input')),
@@ -669,6 +797,7 @@ class Validator extends EventEmitter {
 	registerGlobalVariable(node /* GlobalDeclarationStatement */, symbolName, typeNode /* AtomicType | ArrayType */) {
 		const isArray = isArrayType(typeNode);
 		this.symbols.global.set(symbolName, {
+			name: symbolName,
 			node: node,
 			type: typeNode.firstChild.text,
 			isArray: isArray,
@@ -685,6 +814,7 @@ class Validator extends EventEmitter {
 	registerLocalVariable(node /* LocalDeclarationStatement */, symbolName, typeNode /* AtomicType | ArrayType */) {
 		const isArray = isArrayType(typeNode);
 		this.symbols.local.set(symbolName, {
+			name: symbolName,
 			node: node,
 			type: typeNode.firstChild.text,
 			isArray: isArray,
@@ -701,6 +831,7 @@ class Validator extends EventEmitter {
 	prepareRegisterLocalVariable(node /* LocalDeclarationStatement */, symbolName, typeNode /* AtomicType | ArrayType */) {
 		const isArray = isArrayType(typeNode);
 		this.symbols.currentLocal = [symbolName, {
+			name: symbolName,
 			node: node,
 			type: typeNode.firstChild.text,
 			isArray: isArray,
@@ -721,6 +852,7 @@ class Validator extends EventEmitter {
 
 	registerLocalVariableFromParameter(node /* FunctionDeclaration */, symbolName, declType) {
 		this.symbols.local.set(symbolName, {
+			name: symbolName,
 			node: node,
 			type: declType,
 			isArray: false,
