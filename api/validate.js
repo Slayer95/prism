@@ -1,5 +1,6 @@
 "use strict";
 
+const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const util = require('util');
@@ -47,6 +48,7 @@ function main() {
 	const parsedTrees = JASSParser.parseFiles(positionals);
 	const validator = new Validator(values);
 	const {result, errors, warnings} = validator.checkTrees(parsedTrees);
+	assert.strictEqual(validator.controlFlow.stack.length, 0, `Control flow stack not cleared`);
 	switch (result) {
 		case ValidatorResult.kOk:
 			break;

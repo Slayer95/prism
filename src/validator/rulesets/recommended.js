@@ -10,6 +10,9 @@ const IGNORED_RETURN_TYPES = ['triggercondition', 'triggeraction', 'event'];
 
 module.exports = {
 	handlers: {
+		api_receiver_unsafe_null(node, fileName, funcName, calleeName, variableName, variableType) {
+			this.warnings.push(util.format(`%s:%s\n\n  %s\n\n  %%s %s should not be called on nullable %s '%s'.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), calleeName, variableType, variableName));
+		},
 		bad_comparison(node, fileName, funcName, errorCategory, otherType) {
 			switch (errorCategory) {
 				case 'null vs primitive': {
