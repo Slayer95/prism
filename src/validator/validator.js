@@ -9,7 +9,7 @@ const Parser = require('tree-sitter');
 const JASS = require('tree-sitter-jass');
 
 const {ValidatorResult} = require('./../../lib/constants');
-const {internalTypes, isNumberType, isPrimitiveType, isAPINeedsInitialization} = require('./../../lib');
+const {internalTypes, isNumberType, isPrimitiveType, isAPINeedsInitialization, isAPIHandleDestroyer} = require('./../../lib');
 
 function findChildNamed(node, name) {
 	const children = node.childrenForFieldName(name);
@@ -104,6 +104,16 @@ function isFunctionArgument(node) {
 	return getUnwrapParensAncestor(node.parent).type === 'FunctionArgument';
 }
 
+function extractNthArgument(argumentsNode, n) {
+	if (n >= argumentsNode.namedChildCount) return null;
+	let fnArgument = argumentsNode.firstNamedChild;
+	while (n > 0) {
+		fnArgument = fnArgument.nextNamedSibling;
+		n--;
+	}
+	return getUnwrapParensDescendant(fnArgument.firstNamedChild);
+}
+
 function setAddMany(targetSet, iterable) {
 	for (const entry of iterable) {
 		targetSet.add(entry);
@@ -139,6 +149,7 @@ class ControlFlow {
 		this.currentLoopNode = null;
 		this.stack = [];
 		this.about = new Map();
+		this.aboutFunctions = new Map();
 	}
 
 	enter(node) {
@@ -146,9 +157,6 @@ class ControlFlow {
 		if (this.getIsNestedNodeType(node.type)) {
 			this.stack.push(node);
 			this.currentNode = node;
-			if (node.type === 'FunctionBody') {
-				this.currentFnNode = node;
-			}
 			if (node.type === 'LoopStatement') {
 				this.currentLoopNode = node;
 			}
@@ -162,15 +170,25 @@ class ControlFlow {
 					type: this.validator.state.currentFunctionNeedsReturn ? this.validator.getFunction(this.validator.state.currentFunctionName)?.returnType : null,
 					always: false,
 					someTimes: false,
+					global: this.validator.state.currentFunctionNeedsReturn,
 					branchesHave: [0, 0],
 					node: null,
+					nodes: [],
 				},
 				'tests': [],
 				'variables': {
 					read: new Set(),
 					written: new Set(),
 				},
+				'handles': {
+					finalSetNode: null,
+				},
 			});
+			if (node.type === 'FunctionBody') {
+				this.currentFnNode = node;
+				this.aboutFunctions.set(this.validator.state.currentFunctionName, this.about.get(node));
+			}
+			
 		}
 		this.onEnter(node, ancestorNode);
 	}
@@ -210,12 +228,20 @@ class ControlFlow {
 			const aboutFn = this.about.get(this.currentFnNode);
 			aboutFn.return.someTimes = true;
 
+			const returnedNode = node.namedChildCount > 0 ? getUnwrapParensDescendant(node.lastNamedChild) : null;
+			if (!(returnedNode?.type === 'CallExpression' && this.aboutFunctions.get(returnedNode.firstNamedChild.text)?.return.global)) {
+				if (!(returnedNode?.type === 'VariableReference' && this.validator.getSymbol(returnedNode.text)?.isGlobal)) {
+					aboutFn.return.global = false;
+				}
+			}
+
 			const aboutAncestor = this.about.get(parentControlFlowNode);
 			if (!aboutAncestor.return.node) {
 				aboutAncestor.return.node = node;
 				aboutAncestor.return.always = true;
 				aboutAncestor.return.someTimes = true;
 			}
+
 			if ((nextSignificantNode = getNextSignificantSibling(node)) !== null) {
 				// Baseline PASS
 				this.validator.emitNodeEvent(nextSignificantNode, 'unreachable_code', 'return', node);
@@ -234,55 +260,15 @@ class ControlFlow {
 		} else if (node.type === 'VariableReference') {
 			if (parentControlFlowNode !== null) {
 				const ioEntry = node.text;
-				const aboutFnAncestor = this.about.get(this.currentFnNode);
-				if (parentControlFlowNode.type === 'Test') {
-					const aboutAncestor = this.about.get(parentControlFlowNode);
-					aboutAncestor.variables.read.add(ioEntry);
-					aboutFnAncestor.variables.read.add(ioEntry);
-				} else if (node.parent.type === 'SetStatement' && node.parent.firstNamedChild === node) {
-					if (this.currentLoopNode) {
-						const aboutLoopAncestor = this.about.get(this.currentLoopNode);
-						aboutLoopAncestor.variables.written.add(ioEntry);
-					}
-					aboutFnAncestor.variables.written.add(ioEntry);
-				} else {
-					aboutFnAncestor.variables.read.add(ioEntry);
-				}
 				const varInfo = this.validator.getSymbol(ioEntry);
-				if (varInfo && !isPrimitiveType(varInfo.type) && isFunctionArgument(node)) {
-					aboutFnAncestor.variables.written.add(ioEntry);
-					if (this.currentLoopNode) {
-						const aboutLoopAncestor = this.about.get(this.currentLoopNode);
-						aboutLoopAncestor.variables.written.add(ioEntry);
-					}
-				}
+				this.onLeaveVariable(node, parentControlFlowNode, ioEntry, varInfo);
 			}
 			return;
 		} else if (node.type === 'ArrayElement') {
 			if (parentControlFlowNode !== null) {
 				const ioEntry = `${node.firstNamedChild.text},${node.lastNamedChild.text}`;
-				const aboutFnAncestor = this.about.get(this.currentFnNode);
-				if (parentControlFlowNode.type === 'Test') {
-					const aboutAncestor = this.about.get(parentControlFlowNode);
-					aboutAncestor.variables.read.add(ioEntry);
-					aboutFnAncestor.variables.read.add(ioEntry);
-				} else if (node.parent.type === 'SetStatement' && node.parent.firstNamedChild === node) {
-					if (this.currentLoopNode) {
-						const aboutLoopAncestor = this.about.get(this.currentLoopNode);
-						aboutLoopAncestor.variables.written.add(ioEntry);
-					}
-					aboutFnAncestor.variables.written.add(ioEntry);
-				} else {
-					aboutFnAncestor.variables.read.add(ioEntry);
-				}
 				const varInfo = this.validator.getSymbol(node.firstNamedChild.text);
-				if (varInfo && !isPrimitiveType(varInfo.type) && isFunctionArgument(node)) {
-					aboutFnAncestor.variables.written.add(ioEntry);
-					if (this.currentLoopNode) {
-						const aboutLoopAncestor = this.about.get(this.currentLoopNode);
-						aboutLoopAncestor.variables.written.add(ioEntry);
-					}
-				}
+				this.onLeaveVariable(node, parentControlFlowNode, ioEntry, varInfo);
 			}
 			return;
 		} else if (node.type === 'Test') {
@@ -415,6 +401,30 @@ class ControlFlow {
 					// Baseline PASS
 					this.validator.emitNodeEvent(node, 'needless_return_multibranch');
 				}
+			}
+		}
+	}
+
+	onLeaveVariable(node, parentControlFlowNode, ioEntry, varInfo) {
+		const aboutFnAncestor = this.about.get(this.currentFnNode);
+		if (parentControlFlowNode.type === 'Test') {
+			const aboutAncestor = this.about.get(parentControlFlowNode);
+			aboutAncestor.variables.read.add(ioEntry);
+			aboutFnAncestor.variables.read.add(ioEntry);
+		} else if (node.parent.type === 'SetStatement' && node.parent.firstNamedChild === node) {
+			if (this.currentLoopNode) {
+				const aboutLoopAncestor = this.about.get(this.currentLoopNode);
+				aboutLoopAncestor.variables.written.add(ioEntry);
+			}
+			aboutFnAncestor.variables.written.add(ioEntry);
+		} else {
+			aboutFnAncestor.variables.read.add(ioEntry);
+		}
+		if (varInfo && !isPrimitiveType(varInfo.type) && isFunctionArgument(node)) {
+			aboutFnAncestor.variables.written.add(ioEntry);
+			if (this.currentLoopNode) {
+				const aboutLoopAncestor = this.about.get(this.currentLoopNode);
+				aboutLoopAncestor.variables.written.add(ioEntry);
 			}
 		}
 	}
@@ -1259,6 +1269,32 @@ class Validator extends EventEmitter {
 				}
 				break;
 			}
+			case 'CallStatement': {
+				const callExpressionNode = node.lastNamedChild;
+				const calleeName = findChildNamed(callExpressionNode, 'callee').text;
+				const declaredSymbol = this.getFunction(calleeName);
+				if (declaredSymbol && isAPIHandleDestroyer(calleeName)) {
+					const argumentsNode = ensureKind(callExpressionNode.lastNamedChild, 'FunctionArgumentList');
+					const subCalleeNode = argumentsNode ? extractNthArgument(argumentsNode, 0) : null;
+					if (subCalleeNode && (subCalleeNode.type === 'VariableReference' || subCalleeNode.type === 'ArrayElement')) {
+						const symbolName = subCalleeNode.type === 'VariableReference' ? subCalleeNode.text : subCalleeNode.firstNamedChild.text;
+						const symbolInfo = this.getSymbol(symbolName);
+						if (symbolInfo?.isGlobal) {
+							const nextInstruction = getNextSignificantSibling(node);
+							if (!nextInstruction ||
+								nextInstruction.type !== 'SetStatement' ||
+								nextInstruction.firstNamedChild.type !== subCalleeNode.type ||
+								nextInstruction.firstNamedChild.text !== subCalleeNode.text
+							) {
+								// Baseline PASS
+								this.emitNodeEvent(node, 'dangling_global_handle', subCalleeNode.text, symbolInfo.type, nextInstruction);
+							}
+						}
+					}
+				}
+				break;
+			}
+
 			case 'SetStatement': {
 				const bindNode = findChildNamed(node, 'binding');
 				const isArraySet = bindNode.type === 'ArrayElement';
@@ -1472,7 +1508,10 @@ class Validator extends EventEmitter {
 							this.emitNodeEvent(node, 'bad_comparison', 'null vs primitive', lhsType);
 						}
 					}
-					if (lhsType === 'real' || rhsType === 'real') {
+					if ((lhsType === 'real' && lhsNode.type === 'Literal') || (rhsType === 'real' && rhsNode.type === 'Literal')) {
+						// Baseline PASS
+						this.emitNodeEvent(node, 'bad_comparison', 'real_literal', !(lhsType === 'real' && lhsNode.type === 'Literal') ? lhsType : rhsType);
+					} else if (lhsType === 'real' || rhsType === 'real') {
 						// Baseline PASS
 						this.emitNodeEvent(node, 'bad_comparison', 'real', lhsType !== 'real' ? lhsType : rhsType);
 					}

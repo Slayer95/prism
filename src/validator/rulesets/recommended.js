@@ -6,6 +6,8 @@ const util = require('util');
 
 const {renderLintCode} = require('./../../../lib');
 
+const IGNORED_RETURN_TYPES = ['triggercondition', 'triggeraction', 'event'];
+
 module.exports = {
 	handlers: {
 		bad_comparison(node, fileName, funcName, errorCategory, otherType) {
@@ -14,8 +16,12 @@ module.exports = {
 					this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Comparing equality of null against %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), otherType));
 					break;
 				}
+				case 'real_literal': {
+					this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Comparing equality of literal real against %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), otherType));
+					break;
+				}
 				case 'real': {
-					this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Comparing equality of real against %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), otherType));
+					this.warnings.push(util.format(`%s:%s\n\n  %s\n\n  %%s Comparing equality of real against %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), otherType));
 					break;
 				}
 			}
@@ -25,6 +31,9 @@ module.exports = {
 		},
 		constant_test(node, fileName, funcName, result) {
 			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Condition is constant.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text)));
+		},
+		dangling_global_handle(node, fileName, funcName, variableName, variableType, nextInstruction) {
+			this.errors.push(util.format(`%s:%s\n\n  %s\n  %s\n\n  %%s Global %s handle %s is destroyed but not immediately nulled nor reassigned.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), nextInstruction ? renderLintCode(nextInstruction.text) : '', variableType, variableName));
 		},
 		exitwhen_non_local(node, fileName, funcName) {
 			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Loop exit condition only depends on external state.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text)));
@@ -50,7 +59,12 @@ module.exports = {
 			this.warnings.push(util.format(`%s:%s\n\n  %s\n\n  %%s Function %s calls itself.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), calleeName));
 		},
 		return_value_discarded(node, fileName, funcName, lifeCycle, calleeName, returnType) {
-			this.warnings.push(util.format(`%s:%s\n\n  %s\n\n  %%s Function %s returns '%s', but it's discarded in %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), calleeName, returnType, funcName));
+			if (IGNORED_RETURN_TYPES.includes(returnType)) return;
+			assert.notEqual(this.controlFlow.aboutFunctions.size, 0);
+			const aboutFn = this.controlFlow.aboutFunctions.get(calleeName);
+			if (!aboutFn /* Native function */ || !aboutFn.return.global /* Function writes to a global variable */) {
+				this.warnings.push(util.format(`%s:%s\n\n  %s\n\n  %%s Function %s returns '%s', but it's discarded in %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), calleeName, returnType, funcName));
+			}
 		},
 		test_constant(node, fileName, funcName, category, loopNode) {
 			assert.equal(category, 'loop');
