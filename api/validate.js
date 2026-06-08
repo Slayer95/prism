@@ -48,7 +48,9 @@ function main() {
 	const parsedTrees = JASSParser.parseFiles(positionals);
 	const validator = new Validator(values);
 	const {result, errors, warnings} = validator.checkTrees(parsedTrees);
-	assert.strictEqual(validator.controlFlow.stack.length, 0, `Control flow stack not cleared`);
+	for (const [keyName, stack] of Object.entries(validator.controlFlow.stack)) {
+		assert.strictEqual(stack.length, 0, `Control flow stack '${keyName}' not cleared`);
+	}
 	switch (result) {
 		case ValidatorResult.kOk:
 			break;

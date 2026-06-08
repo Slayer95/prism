@@ -49,6 +49,7 @@ const {
 	getUnwrapParensDescendant,
 	getUnwrapParensAncestor,
 	isLastSignificantSibling,
+	getClosestAnyRL,
 	isNodeTypeAnyRL,
 	assertNodeTypeAnyRL,
 } = require('./../../lib/tree-helpers');
@@ -59,8 +60,14 @@ class ControlFlow {
 		this.currentNode = null;
 		this.currentFnNode = null;
 		this.currentLoopNode = null;
-		this.stack = [];
-		this.testStack = [];
+		this.currentIfNode = null;
+		this.stack = {
+			global: [],
+			loop: [],
+			loopDepths: [],
+			if: [],
+			ifDepths: [],
+		};
 		this.about = new Map();
 		this.aboutFunctions = new Map();
 	}
@@ -68,17 +75,23 @@ class ControlFlow {
 	enter(node) {
 		const ancestorNode = this.currentNode;
 		if (this.getIsNestedNodeType(node.type)) {
-			this.stack.push(node);
+			const stackDepth = this.stack.global.push(node) - 1;
 			this.currentNode = node;
 			if (node.type === 'LoopStatement') {
 				this.currentLoopNode = node;
+				this.stack.loop.push(node);
+				this.stack.loopDepths.push(stackDepth);
+			} else if (isNodeTypeAnyRL(node, 'IfStatement')) {
+				this.stack.ifDepths.push(stackDepth);
+				this.stack.if.push([node, -1]);
+				this.currentIfNode = this.stack.if[this.stack.if.length - 1];
 			}
 			this.about.set(node, {
 				branchCount: 1,
 				'exitwhen': {
 					someTimes: false,
 					variables: new Set(),
-					nodes: [],
+					collected: [/*{exitWhenNode: null, ifPath: []}*/],
 				},
 				'return': {
 					needs: this.validator.state.currentFunctionNeedsReturn,
@@ -110,22 +123,84 @@ class ControlFlow {
 
 	leave(node) {
 		if (this.getIsNestedNodeType(node.type)) {
-			this.stack.pop();
-			this.currentNode = this.stack.length ? this.stack[this.stack.length - 1] : null;
+			assert.equal(this.stack.global[this.stack.global.length - 1], node);
+			this.stack.global.pop();
+			this.currentNode = this.stack.global.length ? this.stack.global[this.stack.global.length - 1] : null;
 			if (!this.currentNode) this.currentFnNode = null;
-			this.currentLoopNode = null;
-			for (let i = this.stack.length - 1; i >= 0; i--) {
-				if (this.stack[i].type === 'LoopStatement') {
-					this.currentLoopNode = this.stack[i];
-					break;
-				}
+			if (node.type === 'LoopStatement') {
+				this.stack.loop.pop();
+				this.stack.loopDepths.pop();
+				this.currentLoopNode = this.stack.loop.length ? this.stack.loop[this.stack.loop.length - 1] : null;
+			} else if (isNodeTypeAnyRL(node, 'IfStatement')) {
+				this.stack.if.pop();
+				this.stack.ifDepths.pop();
+				this.currentIfNode = this.stack.if.length ? this.stack.if[this.stack.if.length - 1] : null;
+			} else if (isNodeTypeAnyRL(node, 'Consequent') || isNodeTypeAnyRL(node, 'Alternate')) {
+				this.currentIfNode[1]++;
 			}
 		}
 		this.onLeave(node, this.currentNode);
 	}
 
+	getClosestInStack(type) {
+		for (let i = this.stack.length - 1; i >= 0; i--) {
+			if (this.stack[i].type === type) {
+				return this.stack[i];
+			}
+		}
+		return null;
+	}
+
+	getClosestInStackAnyRL(type) {
+		for (let i = this.stack.length - 1; i >= 0; i--) {
+			if (isNodeTypeAnyRL(this.stack[i], type)) {
+				return this.stack[i];
+			}
+		}
+		return null;
+	}
+
 	getIsNestedNodeType(nodeType) {
 		return (nodeType !== 'ReturnStatement' && nodeType !== 'VariableReference' && nodeType !== 'ArrayElement');
+	}
+
+	getIfStatementNodesInLoopStack() {
+		const globalDepthForLoop = this.stack.loopDepths[this.stack.loopDepths - 1];
+		for (let i = this.stack.ifDepths.length - 1; i >= 0; i--) {
+			if (this.stack.ifDepths[i] < globalDepthForLoop) {
+				break;
+			}
+			return this.stack.if.slice(i + 1);
+		}
+		return [];
+	}
+
+	getExitWhenVariables(exitWhenNode, ifPath) {
+		const readVariables = new Set();
+		setHelpers.addMany(readVariables, this.about.get(exitWhenNode.firstNamedChild).variables.read);
+		for (const [ifNode, branchIdx] of ifPath) {
+			for (const testNode of getTestNodes(ifNode, branchIdx)) {
+				setHelpers.addMany(readVariables, this.about.get(testNode).variables.read);
+			}
+		}
+		return readVariables;
+	}
+
+	getWhetherExitWhenVariablesIntersect(exitWhenNode, ifPath, writeVariables, exitWhenVariables) {
+		for (const varName of this.about.get(exitWhenNode.firstNamedChild).variables.read) {
+			exitWhenVariables.add(varName);
+			if (writeVariables.has(varName)) return true;
+		}
+		for (const [ifNode, branchIdx] of ifPath) {
+			console.log(`Branch #${branchIdx}: ${ifNode.text}`);
+			for (const testNode of getTestNodes(ifNode, branchIdx)) {
+				for (const varName of this.about.get(testNode).variables.read) {
+					exitWhenVariables.add(varName);
+					if (writeVariables.has(varName)) return true;
+				}
+			}
+		}
+		return false;
 	}
 
 	onEnter(node, parentControlFlowNode) {
@@ -173,7 +248,10 @@ class ControlFlow {
 				aboutAncestor.exitwhen.someTimes = true;
 
 				const aboutLoopAncestor = this.about.get(this.currentLoopNode);
-				aboutLoopAncestor.exitwhen.nodes.push(node);
+				aboutLoopAncestor.exitwhen.collected.push({
+					exitWhenNode: node,
+					ifPath: this.getIfStatementNodesInLoopStack(),
+				});
 			}
 			//setHelpers.addMany(aboutAncestor.exitwhen.variables, this.about.get(node.firstNamedChild).variables.read);
 			return;
@@ -192,8 +270,10 @@ class ControlFlow {
 			}
 			return;
 		} else if (node.type === 'Test') {
-			if (this.currentLoopNode) {
-				this.about.get(this.currentLoopNode).tests.push(node);
+			if (node.parent.type !== 'ExitWhenStatement') {
+				const ifAncestor = getClosestAnyRL(node, 'IfStatement');
+				const aboutIfAncestor = this.about.get(ifAncestor);
+				aboutIfAncestor.tests.push(node);
 			}
 			return;
 		} else {
@@ -203,8 +283,10 @@ class ControlFlow {
 				if (aboutNode.return.someTimes) {
 					aboutAncestor.return.someTimes = true;
 				}
-				if (!isLoopNode(node) && aboutNode.exitwhen.someTimes) {
-					aboutAncestor.exitwhen.someTimes = true;
+				if (!isLoopNode(node)) {
+					if (aboutNode.exitwhen.someTimes) {
+						aboutAncestor.exitwhen.someTimes = true;
+					}
 				}
 			}
 			switch (node.type) {
@@ -285,16 +367,26 @@ class ControlFlow {
 						this.validator.emitNodeEvent(node, 'infinite_loop');
 					}
 
-					if (aboutNode.exitwhen.variables.size && setHelpers.getAreDisjoint(aboutNode.exitwhen.variables, aboutNode.variables.written)) {
-						if (this.validator.getIsAnyNonLocal(aboutNode.exitwhen.variables)) {
+					let anySuccess = false;
+					let maybeReadOnlyVariables = new Set();
+					for (const {exitWhenNode, ifPath} of aboutNode.exitwhen.collected) {
+						if (this.getWhetherExitWhenVariablesIntersect(exitWhenNode, ifPath, aboutNode.variables.written, maybeReadOnlyVariables)) {
+							anySuccess = true;
+							break;
+						}
+					}
+					if (!anySuccess) {
+						if (this.validator.getIsAnyNonLocal(maybeReadOnlyVariables)) {
 							// Baseline PASS
 							this.validator.emitNodeEvent(node, 'exitwhen_non_local' /* maybe constant */);
 						} else {
 							// Baseline PASS
 							this.validator.emitNodeEvent(node, 'exitwhen_constant');
 						}
+						//setHelpers.addMany(aboutAncestor.exitwhen.variables, this.about.get(node.firstNamedChild).variables.read);
 					}
 
+					// TODO: Maybe generalize to loop_constant_expression (note: split apart VariableReference,ArrayElement|OtherExpressions)
 					for (const testNode of aboutNode.tests) {
 						const aboutTestNode = this.about.get(testNode);
 						if (aboutTestNode.variables.read.size && setHelpers.getAreDisjoint(aboutTestNode.variables.read, aboutNode.variables.written)) {
