@@ -42,7 +42,7 @@ module.exports = {
 			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Loop exit condition only depends on external state.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text)));
 		},
 		local_handle_not_nulled(node, fileName, funcName, varName, varType, lastValueNode) {
-			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Local handle '%s' of type '%s' is not nulled.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), varName, varType));
+			this.warnings.push(util.format(`%s:%s\n\n  %s\n\n  %%s Local handle '%s' of type '%s' is not nulled.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), varName, varType));
 		},
 		lossy_type_cast(node, fileName, funcName, toType, fromType, certainty, value, desc) {
 			if (certainty !== 'unknown') return;
@@ -90,16 +90,16 @@ module.exports = {
 			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Unreachable code.\n`, chalk.yellow(fileName), chalk.yellow(unreachableNode.startPosition.row), renderLintCode(unreachableNode.text)));
 		},
 		unused_function(node, fileName, funcName, varName) {
-			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Function %s is defined but never used.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), varName));
+			this.warnings.push(util.format(`%s:%s\n\n  %s\n\n  %%s Function %s is defined but never used.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), varName));
 		},
 		unused_global_variable(node, fileName, funcName, varName) {
-			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Global variable %s is defined but never used.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), varName));
+			this.warnings.push(util.format(`%s:%s\n\n  %s\n\n  %%s Global variable %s is defined but never used.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), varName));
 		},
 		unused_local_variable(node, fileName, funcName, varName) {
-			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Local variable %s is defined but never used in %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), varName, funcName));
+			this.warnings.push(util.format(`%s:%s\n\n  %s\n\n  %%s Local variable %s is defined but never used in %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), varName, funcName));
 		},
 		unused_parameter(node, fileName, funcName, varName) {
-			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Parameter '%s' of %s is defined but never used.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), varName, funcName));
+			this.warnings.push(util.format(`%s:%s\n\n  %s\n\n  %%s Parameter '%s' of %s is defined but never used.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), varName, funcName));
 		},
 	},
 };

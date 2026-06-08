@@ -160,6 +160,11 @@ class Validator extends EventEmitter {
 		return this.emit(eventName, node, this.currentFile, funcName, ...rest);
 	}
 
+	emitSymbolEvent(symbol, eventName, ...rest) {
+		const funcName = this.currentFunction?.name ?? '~';
+		return this.emit(eventName, symbol.node, symbol.file, funcName, ...rest);
+	}
+
 	getInternalTypes() {
 		return new Map(internalTypes.map(name => [name, new TypeInfo(name, null, name === 'code')]));
 	}
@@ -261,7 +266,7 @@ class Validator extends EventEmitter {
 			isTDZ: false,
 			isNative,
 			isGlobal: true,
-			isUsed: false,
+			isUsed: symbolName === 'InitBlizzard' || symbolName === 'main' || symbolName === 'config',
 			isReassigned: false,
 			isNulled: {
 				initial: false,
@@ -1030,6 +1035,9 @@ class Validator extends EventEmitter {
 				} else if (declaredSymbol.type !== 'code') {
 					this.emitNodeEvent(node, 'function_bad_type', funcName);
 				} else {
+					if (funcName === 'main') {
+						console.log('main is used');
+					}
 					declaredSymbol.isUsed = true;
 				}
 				break;
@@ -1379,10 +1387,10 @@ class Validator extends EventEmitter {
 			if (!symbolInfo.isUsed) {
 				if (symbolInfo.isSyntacticFunction) {
 					// Baseline PASS
-					this.emit(symbolInfo.node, symbolInfo.file, '~', 'unused_function', symbolName);
+					this.emitSymbolEvent(symbolInfo, 'unused_function', symbolName);
 				} else {
 					// Baseline PASS
-					this.emit(symbolInfo.node, symbolInfo.file, '~', 'unused_global_variable', symbolName);
+					this.emitSymbolEvent(symbolInfo, 'unused_global_variable', symbolName);
 				}
 			}
 		}
