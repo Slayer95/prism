@@ -29,6 +29,10 @@ const {
 } = require('./../analysis/loop');
 
 const {
+	getTestNodes,
+} = require('./../analysis/if');
+
+const {
 	isArrayTypeNode,
 } = require('./../analysis/var-declaration');
 
@@ -122,10 +126,13 @@ class ControlFlow {
 	}
 
 	leave(node) {
-		if (this.getIsNestedNodeType(node.type)) {
+		const isNested = this.getIsNestedNodeType(node.type);
+		const parentControlFlowNode = isNested && this.stack.global.length >= 2 ? this.stack.global[this.stack.global.length - 2] : this.currentNode;
+		this.onLeave(node, parentControlFlowNode);
+		if (isNested) {
 			assert.equal(this.stack.global[this.stack.global.length - 1], node);
 			this.stack.global.pop();
-			this.currentNode = this.stack.global.length ? this.stack.global[this.stack.global.length - 1] : null;
+			this.currentNode = parentControlFlowNode;
 			if (!this.currentNode) this.currentFnNode = null;
 			if (node.type === 'LoopStatement') {
 				this.stack.loop.pop();
@@ -139,7 +146,6 @@ class ControlFlow {
 				this.currentIfNode[1]++;
 			}
 		}
-		this.onLeave(node, this.currentNode);
 	}
 
 	getClosestInStack(type) {
@@ -167,12 +173,12 @@ class ControlFlow {
 	getIfStatementNodesInLoopStack() {
 		const globalDepthForLoop = this.stack.loopDepths[this.stack.loopDepths - 1];
 		for (let i = this.stack.ifDepths.length - 1; i >= 0; i--) {
-			if (this.stack.ifDepths[i] < globalDepthForLoop) {
-				break;
+			if (globalDepthForLoop < this.stack.ifDepths[i]) {
+				continue;
 			}
 			return this.stack.if.slice(i + 1);
 		}
-		return [];
+		return this.stack.if.slice();
 	}
 
 	getExitWhenVariables(exitWhenNode, ifPath) {
@@ -192,7 +198,6 @@ class ControlFlow {
 			if (writeVariables.has(varName)) return true;
 		}
 		for (const [ifNode, branchIdx] of ifPath) {
-			console.log(`Branch #${branchIdx}: ${ifNode.text}`);
 			for (const testNode of getTestNodes(ifNode, branchIdx)) {
 				for (const varName of this.about.get(testNode).variables.read) {
 					exitWhenVariables.add(varName);
@@ -248,10 +253,11 @@ class ControlFlow {
 				aboutAncestor.exitwhen.someTimes = true;
 
 				const aboutLoopAncestor = this.about.get(this.currentLoopNode);
-				aboutLoopAncestor.exitwhen.collected.push({
+				const ifPathEntry = {
 					exitWhenNode: node,
 					ifPath: this.getIfStatementNodesInLoopStack(),
-				});
+				};
+				aboutLoopAncestor.exitwhen.collected.push(ifPathEntry);
 			}
 			//setHelpers.addMany(aboutAncestor.exitwhen.variables, this.about.get(node.firstNamedChild).variables.read);
 			return;
