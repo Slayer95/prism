@@ -1067,7 +1067,6 @@ class Validator extends EventEmitter {
 					}
 				}
 				if (declaredSymbol && !isAssignment) {
-					if (variableName === 'leftGame') console.log(`${variableName} used in ${this.currentFunction?.name}`);
 					declaredSymbol.isUsed = true;
 				}
 				break;
