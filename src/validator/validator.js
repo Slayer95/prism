@@ -14,6 +14,7 @@ const {
 	TypeInfo,
 	internalTypes, isNumberType, isPrimitiveType, isExtensibleType,
 	isAPINeedsInitialization, isAPIHandleDestroyer, isAPINullUnsafe,
+	isEntryPoint, entryPoints,
 } = require('./../language');
 
 const {
@@ -266,7 +267,7 @@ class Validator extends EventEmitter {
 			isTDZ: false,
 			isNative,
 			isGlobal: true,
-			isUsed: symbolName === 'InitBlizzard' || symbolName === 'main' || symbolName === 'config',
+			isUsed: isEntryPoint(symbolName),
 			isReassigned: false,
 			isNulled: {
 				initial: false,
@@ -1369,10 +1370,10 @@ class Validator extends EventEmitter {
 			if (!symbolInfo.isUsed) {
 				if (symbolInfo.isParameter) {
 					// Baseline PASS
-					this.emitNodeEvent(symbolInfo.node, symbolInfo.file, this.currentFunction.name, 'unused_parameter', symbolName);
+					this.emitSymbolEvent(symbolInfo, 'unused_parameter', symbolName);
 				} else {
 					// Baseline PASS
-					this.emitNodeEvent(symbolInfo.node, symbolInfo.file, this.currentFunction.name, 'unused_local_variable', symbolName);
+					this.emitSymbolEvent(symbolInfo, 'unused_local_variable', symbolName);
 				}
 			}
 		}
@@ -1392,6 +1393,21 @@ class Validator extends EventEmitter {
 					// Baseline PASS
 					this.emitSymbolEvent(symbolInfo, 'unused_global_variable', symbolName);
 				}
+			}
+		}
+
+		for (const symbolName of entryPoints) {
+			const symbolInfo = this.symbols.global.get(symbolName);
+			if (!symbolInfo) {
+				this.emit('entrypoint_missing', null, null, '~', symbolName);
+			} else if (!symbolInfo.isSyntacticFunction) {
+				this.emitSymbolEvent(symbolInfo, 'entrypoint_nonfunction', symbolName);
+			} else if (symbolInfo.isConstant) {
+				this.emitSymbolEvent(symbolInfo, 'entrypoint_constant', symbolName);
+			} else if (symbolInfo.returnType) {
+				this.emitSymbolEvent(symbolInfo, 'entrypoint_returns', symbolName);
+			} else if (symbolInfo.parameters.length) {
+				this.emitSymbolEvent(symbolInfo, 'entrypoint_parameters', symbolName);
 			}
 		}
 	}

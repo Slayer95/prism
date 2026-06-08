@@ -6,6 +6,7 @@ const constants = require('./../../lib/constants');
 
 const primitiveTypes = ['boolean', 'integer', 'real', 'string'];
 const internalTypes = [...primitiveTypes, 'code', 'handle'];
+const entryPoints = ['InitBlizzard', 'config', 'main'];
 
 const needInitAPIs = [
 	'OrderId', 'OrderId2String', 'UnitId2String', 'GetObjectName', // otherwise, return null
@@ -40,6 +41,10 @@ function isNumberType(type) {
 	return type === 'integer' || type === 'real';
 }
 
+function isEntryPoint(symbolName) {
+	return entryPoints.includes(symbolName);
+}
+
 function isAPINeedsInitialization(calleeName) {
 	return needInitAPIs.includes(calleeName);
 }
@@ -72,8 +77,10 @@ module.exports = {
 	isNumberType,
 	primitiveTypes,
 	internalTypes,
+	entryPoints,
 
 	isAPINeedsInitialization,
 	isAPINullUnsafe,
 	isAPIHandleDestroyer,
+	isEntryPoint,
 };

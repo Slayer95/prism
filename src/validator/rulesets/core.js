@@ -35,6 +35,21 @@ module.exports = {
 				this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Cannot set global variable %s from constant function %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), refSymbol, funcName));
 			}
 		},
+		entrypoint_constant(node, fileName, ctx, symbolName) {
+			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Entrypoint '%s' cannot be a constant function.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), symbolName));
+		},
+		entrypoint_missing(node, fileName, ctx, symbolName) {
+			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Entrypoint '%s' is missing.\n`, '~', '~', '~', symbolName));
+		},
+		entrypoint_nonfunction(node, fileName, ctx, symbolName) {
+			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Entrypoint '%s' should be a function.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), symbolName));
+		},
+		entrypoint_parameters(node, fileName, ctx, symbolName) {
+			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Entrypoint '%s' should not take parameters.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), symbolName));
+		},
+		entrypoint_returns(node, fileName, ctx, symbolName) {
+			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Entrypoint '%s' should return nothing.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), symbolName));
+		},
 		function_bad_type(node, fileName, funcName, calleeName) {
 			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Cannot call %s, which is not a function.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), calleeName));
 		},
