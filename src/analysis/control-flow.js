@@ -307,16 +307,6 @@ class ControlFlow {
 						}
 					}
 					for (const [varName, varInfo] of this.validator.symbols.local) {
-						if (!aboutNode.variables.read.has(varName)) {
-							if (varInfo.isParameter) {
-								// Baseline PASS
-								this.validator.emitNodeEvent(node, 'unused_parameter', varName);
-							} else {
-								// Baseline PASS
-								this.validator.emitNodeEvent(node, 'unused_local_variable', varName);
-							}
-						}
-
 						if (!varInfo.isParameter && !isPrimitiveType(varInfo.type) && !varInfo.isArray) {
 							const handleTracker = aboutNode.handles.local.get(varName);
 							if (!handleTracker) {

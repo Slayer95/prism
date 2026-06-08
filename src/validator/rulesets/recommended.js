@@ -90,16 +90,16 @@ module.exports = {
 			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Unreachable code.\n`, chalk.yellow(fileName), chalk.yellow(unreachableNode.startPosition.row), renderLintCode(unreachableNode.text)));
 		},
 		unused_function(node, fileName, funcName, varName) {
-			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Function %s is never used.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), varName));
+			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Function %s is defined but never used.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), varName));
 		},
 		unused_global_variable(node, fileName, funcName, varName) {
-			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Global variable %s is never used.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), varName));
+			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Global variable %s is defined but never used.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), varName));
 		},
 		unused_local_variable(node, fileName, funcName, varName) {
-			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Local variable %s is never used.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), varName));
+			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Local variable %s is defined but never used in %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), varName, funcName));
 		},
-		unused_parameter(node, fileName, funcName,  varName) {
-			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Parameter %s of %s is unused.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), varName, funcName));
+		unused_parameter(node, fileName, funcName, varName) {
+			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Parameter '%s' of %s is defined but never used.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), varName, funcName));
 		},
 	},
 };

@@ -1045,6 +1045,7 @@ class Validator extends EventEmitter {
 				this.controlFlow.enter(node);
 				const variableName = node.text;
 				const isArrayAccess = node.parent.type === 'ArrayElement' && (node === node.parent.firstNamedChild);
+				const isAssignment = isVariableReferenceAssignment(node);
 				const declaredSymbol = this.getSymbol(variableName);
 				if (!declaredSymbol) {
 					// Baseline FAIL
@@ -1059,14 +1060,14 @@ class Validator extends EventEmitter {
 					}
 				} else if (declaredSymbol.isArray && !isArrayAccess) {
 					// Baseline FAIL
-					const isWrite = node.parent.type === 'SetStatement' && node.parent.firstNamedChild === node;
-					if (isWrite) {
+					if (isAssignment) {
 						this.emitNodeEvent(node, 'array_access_required', 'write', variableName);
 					} else {
 						this.emitNodeEvent(node, 'array_access_required', 'read', variableName);
 					}
 				}
-				if (declaredSymbol.isGlobal) {
+				if (declaredSymbol && !isAssignment) {
+					if (variableName === 'leftGame') console.log(`${variableName} used in ${this.currentFunction?.name}`);
 					declaredSymbol.isUsed = true;
 				}
 				break;
@@ -1355,6 +1356,18 @@ class Validator extends EventEmitter {
 	checkFunctionEnd(node) {
 		if (!this.currentFunction.isConstant && !this.currentFunction.hasGlobalSet && !this.currentFunction.hasNonConstantCalls) {
 			this.emitNodeEvent(node, 'prefer_constant_function', this.currentFunction.name);
+		}
+
+		for (const [symbolName, symbolInfo] of this.symbols.local) {
+			if (!symbolInfo.isUsed) {
+				if (symbolInfo.isParameter) {
+					// Baseline PASS
+					this.emitNodeEvent(symbolInfo.node, symbolInfo.file, this.currentFunction.name, 'unused_parameter', symbolName);
+				} else {
+					// Baseline PASS
+					this.emitNodeEvent(symbolInfo.node, symbolInfo.file, this.currentFunction.name, 'unused_local_variable', symbolName);
+				}
+			}
 		}
 	}
 
