@@ -28,7 +28,7 @@ function extractParameters(node /* FunctionParameterList | Empty */) {
 
 function extractReturnType(node /* None | TypeReference */) {
 	if (node.type === 'None') {
-		return null;
+		return '';
 	}
 	assert.equal(node.type, 'TypeReference');
 	return node.text;

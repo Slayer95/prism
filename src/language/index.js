@@ -32,6 +32,10 @@ function isPrimitiveType(type) {
 	return primitiveTypes.includes(type);
 }
 
+function isExtensibleType(type) {
+	return type !== 'code' && !isPrimitiveType(type);
+}
+
 function isNumberType(type) {
 	return type === 'integer' || type === 'real';
 }
@@ -64,6 +68,7 @@ module.exports = {
 	TypeInfo,
 
 	isPrimitiveType,
+	isExtensibleType,
 	isNumberType,
 	primitiveTypes,
 	internalTypes,

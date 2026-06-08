@@ -60,6 +60,12 @@ module.exports = {
 		number_type_punning(node, fileName, funcName, toType, fromType, value, desc) {
 			this.warnings.push(util.format(`%s:%s\n\n  %s\n\n  %%s Casting %s value %d into %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), fromType, value, toType));
 		},
+		prefer_constant_variable(node, fileName, funcName, variableName, variableType) {
+			this.warnings.push(util.format(`%s:%s\n\n  %s\n\n  %%s Global variable %s of type %s is never reassigned. Prefer declaration with 'constant %s'.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), variableName, variableType, variableType));
+		},
+		prefer_constant_function(node, fileName, funcName, variableName) {
+			this.warnings.push(util.format(`%s:%s\n\n  %s\n\n  %%s Function %s only calls 'constant' functions. Prefer 'constant function' declaration.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), variableName));
+		},
 		recursive_function(node, fileName, funcName, calleeName) {
 			assert.equal(funcName, calleeName);
 			this.warnings.push(util.format(`%s:%s\n\n  %s\n\n  %%s Function %s calls itself.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), calleeName));

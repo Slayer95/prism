@@ -12,7 +12,7 @@ const {ValidatorResult} = require('./../../lib/constants');
 
 const {
 	TypeInfo,
-	internalTypes, isNumberType, isPrimitiveType,
+	internalTypes, isNumberType, isPrimitiveType, isExtensibleType,
 	isAPINeedsInitialization, isAPIHandleDestroyer, isAPINullUnsafe,
 } = require('./../language');
 
@@ -66,10 +66,7 @@ class Validator extends EventEmitter {
 		this.currentTree = null;
 		this.history = [];
 		this.controlFlow = new ControlFlow(this);
-		this.state = {
-			currentFunction: '',
-			currentFunctionNeedsReturn: false,
-		};
+		this.currentFunction = null;
 		this.symbols = {
 			types: this.getInternalTypes(),
 			global: new Map(),
@@ -91,10 +88,7 @@ class Validator extends EventEmitter {
 		this.currentTree = null;
 		this.history = [];
 		this.controlFlow = new ControlFlow();
-		this.state = {
-			currentFunction: '',
-			currentFunctionNeedsReturn: false,
-		};
+		this.currentFunction = null;
 		this.symbols = {
 			types: this.getInternalTypes(),
 			global: new Map(),
@@ -162,7 +156,7 @@ class Validator extends EventEmitter {
 	}
 
 	emitNodeEvent(node, eventName, ...rest) {
-		const funcName = this.state.currentFunctionName || '~';
+		const funcName = this.currentFunction?.name ?? '~';
 		return this.emit(eventName, node, this.currentFile, funcName, ...rest);
 	}
 
@@ -171,28 +165,12 @@ class Validator extends EventEmitter {
 	}
 
 	exitFunction() {
-		this.state = {
-			currentFunction: '',
-			currentFunctionNeedsReturn: false,
-		};
+		this.currentFunction = null;
 		this.resetLocalSymbols();
 	}
 
 	resetLocalSymbols() {
 		this.symbols.local.clear();
-	}
-
-	checkGlobals() {
-		for (const [symbolName, symbolInfo] of this.symbols.global) {
-			if (symbolInfo.isUsed) continue;
-			if (symbolInfo.type === 'code') {
-				// Baseline PASS
-				this.emit(symbolInfo.node, symbolInfo.file, '~', 'unused_function', symbolName);
-			} else {
-				// Baseline PASS
-				this.emit(symbolInfo.node, symbolInfo.file, '~', 'unused_global_variable', symbolName);
-			}
-		}
 	}
 
 	checkTreeInner(filePath, cst, source) {
@@ -240,7 +218,7 @@ class Validator extends EventEmitter {
 
 	checkTree(filePath, cst, source) {
 		this.checkTreeInner(filePath, cst, source);
-		this.checkGlobals();
+		this.checkFullProgramEnd();
 		this.runDeferred();
 		this.emit('end');
 
@@ -253,7 +231,7 @@ class Validator extends EventEmitter {
 		for (const [filePath, {cst, source}] of trees) {
 			this.checkTreeInner(filePath, cst, source);
 		}
-		this.checkGlobals();
+		this.checkFullProgramEnd();
 		this.runDeferred();
 		this.emit('end');
 
@@ -277,16 +255,20 @@ class Validator extends EventEmitter {
 			parameters: extractParameters(findChildNamed(node, 'input')),
 			returnType: extractReturnType(findChildNamed(node, 'output')),
 			isConstant,
+			hasGlobalSet: false,
+			hasNonConstantCalls: false,
 			isParameter: false,
 			isTDZ: false,
 			isNative,
 			isGlobal: true,
 			isUsed: false,
+			isReassigned: false,
 			isNulled: {
 				initial: false,
 				deferred: false,
 			},
 			hasInitialValue: true,
+			isSyntacticFunction: true,
 			file: this.currentFile,
 		};
 		this.symbols.global.set(symbolName, symbol);
@@ -308,11 +290,13 @@ class Validator extends EventEmitter {
 			isNative: false,
 			isGlobal: true,
 			isUsed: false,
+			isReassigned: false,
 			isNulled: {
 				initial: initialValueNode?.text === 'null',
 				deferred: false,
 			},
 			hasInitialValue: initialValueNode !== null,
+			isSyntacticFunction: false,
 			file: this.currentFile,
 		});
 	}
@@ -332,11 +316,13 @@ class Validator extends EventEmitter {
 			isNative: false,
 			isGlobal: false,
 			isUsed: false,
+			isReassigned: false,
 			isNulled: {
 				initial: initialValueNode?.text === 'null',
 				deferred: false,
 			},
 			hasInitialValue: initialValueNode !== null,
+			isSyntacticFunction: false,
 			file: this.currentFile,
 		});
 	}
@@ -356,11 +342,13 @@ class Validator extends EventEmitter {
 			isNative: false,
 			isGlobal: false,
 			isUsed: false,
+			isReassigned: false,
 			isNulled: {
 				initial: initialValueNode?.text === 'null',
 				deferred: false,
 			},
 			hasInitialValue: initialValueNode !== null,
+			isSyntacticFunction: false,
 			file: this.currentFile,
 		}];
 	}
@@ -382,10 +370,12 @@ class Validator extends EventEmitter {
 			isNative: false,
 			isGlobal: false,
 			isUsed: false,
+			isReassigned: false,
 			isNulled: {
 				initial: false,
 				deferred: false,
 			},
+			isSyntacticFunction: false,
 			file: this.currentFile,
 		});
 	}
@@ -441,7 +431,7 @@ class Validator extends EventEmitter {
 			case 'CallExpression': {
 				const calleeNode = findChildNamed(node, 'callee');
 				const func = this.getFunction(calleeNode.text);
-				return func ? (func.returnType ?? 'unknown') : 'unknown';
+				return func ? (func.returnType || 'unknown') : 'unknown';
 			}
 
 			case 'CodeReference':
@@ -770,7 +760,12 @@ class Validator extends EventEmitter {
 					this.emitNodeEvent(node, 'shadowing', 'type', 'global', 'global', declName);
 				}
 				if (this.symbols.types.has(superName)) {
-					this.registerType(node, declName, superName);
+					if (!isExtensibleType(superName)) {
+						// Baseline FAIL
+						this.emitNodeEvent(node, 'non_extensible', declName, superName);
+					} else {
+						this.registerType(node, declName, superName);
+					}
 				}
 				break;
 			}
@@ -782,9 +777,13 @@ class Validator extends EventEmitter {
 				}
 				const symbol = this.registerFunction(node, declName)
 
+				if (symbol.isConstant && !symbol.returnType && !symbol.isNative) {
+					// Baseline PASS
+					this.emitNodeEvent(node, 'void_constant_function', declName);
+				}
+
 				if (node.parent.type === 'FunctionDeclaration') {
-					this.state.currentFunctionName = declName;
-					this.state.currentFunctionNeedsReturn = symbol.returnType !== null;
+					this.currentFunction = symbol;
 
 					for (const [declType, declName] of symbol.parameters) {
 						if (this.symbols.local.has(declName)) {
@@ -796,7 +795,6 @@ class Validator extends EventEmitter {
 						}
 						this.registerLocalVariableFromParameter(node.parent, declName, declType);
 					}
-					//assert.equal(this.symbols.local.size, parameters.length, `Local symbols at ${declName}: ${JSON.stringify(Array.from(this.symbols.local.keys()))}`);
 				}
 
 				break;
@@ -867,8 +865,8 @@ class Validator extends EventEmitter {
 							this.validateNodeType(node, expectedType, callArguments[i], `Parameter '${parameterName}' of ${calleeName}`);
 						}
 					}
-					if ((declaredSymbol.returnType === null) !== (node.parent.type === 'CallStatement')) {
-						if (declaredSymbol.returnType === null) {
+					if ((!declaredSymbol.returnType) !== (node.parent.type === 'CallStatement')) {
+						if (!declaredSymbol.returnType) {
 							// Baseline FAIL
 							this.emitNodeEvent(node, 'void_call_as_expression', calleeName);
 						} else {
@@ -876,7 +874,7 @@ class Validator extends EventEmitter {
 							this.emitNodeEvent(node, 'return_value_discarded', 'eager', calleeName, declaredSymbol.returnType);
 						}
 					}
-					if (this.state.currentFunctionName === calleeName) {
+					if (this.currentFunction?.name === calleeName) {
 						if (node.closest('LocalDeclarationStatement')) {
 							// Baseline FAIL
 							this.emitNodeEvent(node, 'recursive_function_local', calleeName);
@@ -885,11 +883,15 @@ class Validator extends EventEmitter {
 							this.emitNodeEvent(node, 'recursive_function', calleeName);
 						}
 					}
-					if (!declaredSymbol.isConstant && this.getFunction(this.state.currentFunctionName)?.isConstant) {
-						// Baseline FAIL
-						this.emitNodeEvent(node, 'const_function_violation', `const ${this.state.currentFunctionName}`, calleeName);
+					if (!declaredSymbol.isConstant && this.currentFunction) {
+						this.currentFunction.hasNonConstantCalls = true;
+
+						if (this.currentFunction.isConstant) {
+							// Baseline FAIL
+							this.emitNodeEvent(node, 'const_function_violation', 'call', `const ${this.currentFunction.name}`, calleeName);
+						}
 					}
-					if (!this.state.currentFunctionName && isAPINeedsInitialization(calleeName)) {
+					if (!this.currentFunction && isAPINeedsInitialization(calleeName)) {
 						// Baseline PASS
 						this.emitNodeEvent(node, 'api_too_early', calleeName);
 					}
@@ -974,9 +976,16 @@ class Validator extends EventEmitter {
 						// Baseline FAIL
 						this.emitNodeEvent(node, 'binding_constant', bindName);
 					} else {
+						declaredSymbol.isReassigned = true;
 						this.validateNodeType(node, declaredSymbol.type, node.lastChild, `Value assigned to '${bindName}'`)
 						if (declaredSymbol.isGlobal && extractValueNodeFromSetStatement(node).text === 'null') {
 							declaredSymbol.isNulled.deferred = true;
+						}
+					}
+					if (declaredSymbol.isGlobal) {
+						this.currentFunction.hasGlobalSet = true;
+						if (this.currentFunction.isConstant) {
+							this.emitNodeEvent(node, 'const_function_violation', 'set', `const ${this.currentFunction.name}`, bindName);
 						}
 					}
 				}
@@ -997,7 +1006,7 @@ class Validator extends EventEmitter {
 						const higherOrderName = findChildNamed(node.closest('CallExpression'), 'callee').text;
 						if (higherOrderName === 'Condition' || higherOrderName === 'Filter') {
 							// Baseline PASS
-							this.emitNodeEvent(node, 'higher_order_type_mismatch', 'boolean', declaredSymbol.returnType ?? 'nothing', higherOrderName, funcName);
+							this.emitNodeEvent(node, 'higher_order_type_mismatch', 'boolean', declaredSymbol.returnType || 'nothing', higherOrderName, funcName);
 						}
 					}
 				}
@@ -1138,17 +1147,17 @@ class Validator extends EventEmitter {
 			case 'ReturnStatement': {
 				this.controlFlow.enter(node);
 				const returnsSomething = node.namedChildCount > 0;
-				const expectedReturnType = this.getFunction(this.state.currentFunctionName)?.returnType;
-				if (returnsSomething === (expectedReturnType === null)) {
-					if (expectedReturnType === null) {
+				const expectedReturnType = this.currentFunction.returnType;
+				if (returnsSomething === !expectedReturnType) {
+					if (!expectedReturnType) {
 						// Baseline FAIL
 						this.emitNodeEvent(node, 'return_value_unexpected', node.firstNamedChild);
 					} else {
 						// Baseline FAIL
 						this.emitNodeEvent(node, 'return_value_required', expectedReturnType);
 					}
-				} else if (expectedReturnType !== null) {
-					this.validateNodeType(node, expectedReturnType, node.firstNamedChild, `Return value from ${this.state.currentFunctionName}`);
+				} else if (expectedReturnType) {
+					this.validateNodeType(node, expectedReturnType, node.firstNamedChild, `Return value from ${this.currentFunction.name}`);
 				}
 				break;
 			}
@@ -1221,6 +1230,7 @@ class Validator extends EventEmitter {
 	handleNodeEnd(node) {
 		switch (node.type) {
 			case 'FunctionDeclaration': {
+				this.checkFunctionEnd(node);
 				this.exitFunction();
 				break;
 			}
@@ -1341,7 +1351,31 @@ class Validator extends EventEmitter {
 			this.emitNodeEvent(node, 'string_too_long', value);
 		}
 	}
-	
+
+	checkFunctionEnd(node) {
+		if (!this.currentFunction.isConstant && !this.currentFunction.hasGlobalSet && !this.currentFunction.hasNonConstantCalls) {
+			this.emitNodeEvent(node, 'prefer_constant_function', this.currentFunction.name);
+		}
+	}
+
+	checkFullProgramEnd() {
+		for (const [symbolName, symbolInfo] of this.symbols.global) {
+			if (!symbolInfo.isConstant && !symbolInfo.isArray && !symbolInfo.isReassigned && !symbolInfo.isSyntacticFunction) {
+				this.emitNodeEvent(symbolInfo.node, 'prefer_constant_variable', symbolName, symbolInfo.type);
+			}
+
+			if (!symbolInfo.isUsed) {
+				if (symbolInfo.isSyntacticFunction) {
+					// Baseline PASS
+					this.emit(symbolInfo.node, symbolInfo.file, '~', 'unused_function', symbolName);
+				} else {
+					// Baseline PASS
+					this.emit(symbolInfo.node, symbolInfo.file, '~', 'unused_global_variable', symbolName);
+				}
+			}
+		}
+	}
+
 	getOutput() {
 		return {
 			result: this.result,

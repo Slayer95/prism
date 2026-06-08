@@ -98,12 +98,12 @@ class ControlFlow {
 					collected: [/*{exitWhenNode: null, ifPath: []}*/],
 				},
 				'return': {
-					needs: this.validator.state.currentFunctionNeedsReturn,
-					type: this.validator.state.currentFunctionNeedsReturn ? this.validator.getFunction(this.validator.state.currentFunctionName)?.returnType : null,
+					needs: !!this.validator.currentFunction.returnType,
+					type: this.validator.currentFunction.returnType,
 					always: false,
 					branchesHave: 0,
 					someTimes: false,
-					global: this.validator.state.currentFunctionNeedsReturn,
+					global: !!this.validator.currentFunction.returnType,
 					node: null,
 					nodes: [],
 				},
@@ -118,7 +118,7 @@ class ControlFlow {
 			});
 			if (node.type === 'FunctionBody') {
 				this.currentFnNode = node;
-				this.aboutFunctions.set(this.validator.state.currentFunctionName, this.about.get(node));
+				this.aboutFunctions.set(this.validator.currentFunction.name, this.about.get(node));
 			}
 			
 		}
@@ -339,7 +339,7 @@ class ControlFlow {
 							} else {
 								// Currently assuming that this is an always-null IfStatement.
 								//this.validator.emitNodeEvent(node, 'local_handle_not_nulled', varName, varInfo.type, node);
-								//console.log(`${this.validator.state.currentFunctionName} - ${handleTracker.lastSetNode.type} (${handleTracker.lastSetNode.text}) always nulls ${varName}`);
+								//console.log(`${this.validator.currentFunction.name} - ${handleTracker.lastSetNode.type} (${handleTracker.lastSetNode.text}) always nulls ${varName}`);
 							}
 						}
 						/*

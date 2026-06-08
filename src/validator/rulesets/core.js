@@ -28,8 +28,12 @@ module.exports = {
 			if (lifeCycle !== 'eager') return;
 			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Function %s expects %d arguments, but was called with %d.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), calleeName, parameterCount, argumentCount));
 		},
-		const_function_violation(node, fileName, funcName, calleeName) {
-			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Cannot call non-constant function %s from constant function %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), calleeName, funcName));
+		const_function_violation(node, fileName, category, refSymbol, calleeName) {
+			if (category === 'call') {
+				this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Cannot call non-constant function %s from constant function %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), refSymbol, funcName));
+			} else {
+				this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Cannot set global variable %s from constant function %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), refSymbol, funcName));
+			}
 		},
 		function_bad_type(node, fileName, funcName, calleeName) {
 			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Cannot call %s, which is not a function.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), calleeName));
@@ -46,6 +50,9 @@ module.exports = {
 		},
 		missing_return(node, fileName, funcName, returnType) {
 			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Function %s is expected to return %s, but has no return statements.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), funcName, returnType));
+		},
+		non_extensible(node, fileName, funcName, declName, superName) {
+			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Type '%s' cannot be extended onto %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), superName, declName));
 		},
 		recursive_function_local(node, fileName, funcName, calleeName) {
 			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Function %s cannot invoke itself from a local declaration.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), funcName));

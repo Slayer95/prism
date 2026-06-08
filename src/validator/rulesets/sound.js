@@ -72,5 +72,8 @@ module.exports = {
 			if (lifeCycle !== 'deferred') return;
 			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Circular reference to variable %s in its redeclaration.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), variableName));
 		},
+		void_constant_function(node, fileName, funcName, declName) {
+			this.errors.push(util.format(`%s:%s\n\n  %s\n\n  %%s Function %s is declared constant, but returns nothing.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), declName));
+		},
 	},
 };
