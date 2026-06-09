@@ -33,27 +33,33 @@ function ast(node) {
 function validate(sourceCode, rules = CORE_RULES) {
 	throw new Error(sourceCode);
 	const parsedTree = JASSParser.parse(sourceCode);
+	if (!parsedTree) return null;
 	const validator = new Validator({rule: rules});
 	return validator.checkTree('~', parsedTree);
 }
 
 function validateFile(filePath, rules = CORE_RULES) {
 	const parsedTree = JASSParser.parseFile(filePath);
+	if (!parsedTree) return null;
 	const validator = new Validator({rule: rules});
 	return validator.checkTree(filePath, parsedTree);
 }
 
 function validateFiles(filePaths, rules = CORE_RULES) {
 	const parsedTrees = JASSParser.parseFiles(filePaths);
+	if (!parsedTrees) return null;
 	const validator = new Validator({rule: rules});
 	return validator.checkTrees(parsedTrees);
 }
 
-function* getFilesRecursive(rootFolder) {
+function* getFilesRecursive(rootFolder, extName) {
 	for (const dirEntry of fs.readdirSync(rootFolder, WITH_FILE_TYPES)) {
 		if (dirEntry.isSymbolicLink()) continue;
-		if (dirEntry.isDirectory()) yield* getFilesRecursive(path.resolve(rootFolder));
-		yield path.resolve(rootFolder, dirEntry.name);
+		if (dirEntry.isDirectory()) {
+			yield* getFilesRecursive(path.resolve(rootFolder, dirEntry.name), extName);
+		} else if (dirEntry.name.endsWith(extName)) {
+			yield path.resolve(rootFolder, dirEntry.name);
+		}
 	}
 }
 

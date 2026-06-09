@@ -30,9 +30,9 @@ module.exports = {
 		},
 		const_function_violation(node, fileName, category, refSymbol, calleeName) {
 			if (category === 'call') {
-				this.error(`%s:%s\n\n  %s\n\n  %%s Cannot call non-constant function %s from constant function %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), refSymbol, funcName);
+				this.error(`%s:%s\n\n  %s\n\n  %%s Cannot call non-constant function %s from constant function %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), refSymbol, calleeName);
 			} else {
-				this.error(`%s:%s\n\n  %s\n\n  %%s Cannot set global variable %s from constant function %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), refSymbol, funcName);
+				this.error(`%s:%s\n\n  %s\n\n  %%s Cannot set global variable %s from constant function %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), refSymbol, calleeName);
 			}
 		},
 		function_bad_type(node, fileName, funcName, calleeName) {

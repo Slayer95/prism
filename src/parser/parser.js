@@ -16,6 +16,7 @@ class JassParser {
 		const parser = new Parser();
 		parser.setLanguage(JASS);
 		const tree = parser.parse(sourceCode);
+		if (tree.rootNode.hasError) return null;
 		return tree;
 	}
 
@@ -24,6 +25,7 @@ class JassParser {
 		const parser = new Parser();
 		parser.setLanguage(JASS);
 		const tree = parser.parse(fileContents);
+		if (tree.rootNode.hasError) return null;
 		return tree;
 	}
 
@@ -34,6 +36,7 @@ class JassParser {
 		parser.setLanguage(JASS);
 		for (const [filePath, fileContent] of fileContents) {
 			const tree = parser.parse(fileContent);
+			if (tree.rootNode.hasError) return null;
 			output.push([filePath, tree]);
 		}
 		return new Map(output);

@@ -47,7 +47,12 @@ function main() {
 	const {values, positionals} = util.parseArgs(cliConfig);
 	const parsedTrees = JASSParser.parseFiles(positionals);
 	const validator = new Validator(values);
-	const {result, errors, warnings} = validator.checkTrees(parsedTrees);
+	const checkResult = validator.checkTrees(parsedTrees);
+	if (!checkResult) {
+		console.error(`Syntax error!`);
+		return;
+	}
+	const {result, errors, warnings} = checkResult;
 	for (const [keyName, stack] of Object.entries(validator.controlFlow.stack)) {
 		assert.strictEqual(stack.length, 0, `Control flow stack '${keyName}' not cleared`);
 	}

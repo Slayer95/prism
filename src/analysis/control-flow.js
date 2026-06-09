@@ -90,6 +90,9 @@ class ControlFlow {
 				this.stack.if.push([node, -1]);
 				this.currentIfNode = this.stack.if[this.stack.if.length - 1];
 			}
+			if (!this.validator.currentFunction) {
+				throw new Error(`No current function found when entering ${node.type} at ${node.parent.text}`);
+			}
 			this.about.set(node, {
 				branchCount: 1,
 				'exitwhen': {
