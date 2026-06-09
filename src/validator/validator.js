@@ -1328,6 +1328,7 @@ class Validator extends EventEmitter {
 
 			case 'String': {
 				this.checkStringSize(node, node.text);
+				this.checkUnescaped(node, node.text);
 				break;
 			}
 		}
@@ -1463,6 +1464,14 @@ class Validator extends EventEmitter {
 		if (Buffer.byteLength(literal) >= 1026) { /* counts quotes */
 			// Baseline PASS
 			this.emitNodeEvent(node, 'string_too_long', literal);
+		}
+	}
+
+	checkUnescaped(node, literal) {
+		const match = /[\n\r\t\b\f]/.exec(literal);
+		if (match) {
+			// Baseline PASS
+			this.emitNodeEvent(node, 'unescaped_control', match[0]);
 		}
 	}
 
