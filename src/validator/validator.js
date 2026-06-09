@@ -99,9 +99,25 @@ class Validator extends EventEmitter {
 		};
 	}
 
+	warn(template, ...values) {
+		this.warnings?.push(util.format(template, ...values));
+
+		if (this.result !== ValidatorResult.kError) {
+			this.result = ValidatorResult.kWarn;
+		}
+	}
+
+	error(template, ...values) {
+		this.errors?.push(util.format(template, ...values));
+
+		if (this.result !== ValidatorResult.kError) {
+			this.result = ValidatorResult.kError;
+		}
+	}
+
 	loadRules() {
 		if (!this.rules.length) {
-			this.rules.push('core', 'sound', 'recommended');
+			this.rules.push('core', 'sound', 'entry', 'recommended');
 		}
 
 		for (const ruleId of this.rules) {
@@ -179,7 +195,7 @@ class Validator extends EventEmitter {
 		this.symbols.local.clear();
 	}
 
-	checkTreeInner(filePath, cst, source) {
+	checkTreeInner(filePath, cst) {
 		this.currentFile = filePath;
 		this.currentTree = cst;
 
@@ -189,6 +205,9 @@ class Validator extends EventEmitter {
 			tree: this.currentTree,
 		}]);
 
+		if (!this.currentTree.rootNode) {
+			console.trace(`currentTree has no root WTF: `, this.currentTree);
+		}
 		const cursor = this.currentTree.rootNode.walk();
 		let reachedRoot = false;
 
@@ -222,8 +241,9 @@ class Validator extends EventEmitter {
 		}
 	}
 
-	checkTree(filePath, cst, source) {
-		this.checkTreeInner(filePath, cst, source);
+	checkTree(filePath, cst) {
+		const hold = {cst};
+		this.checkTreeInner(filePath, hold.cst);
 		this.checkFullProgramEnd();
 		this.runDeferred();
 		this.emit('end');
@@ -234,8 +254,8 @@ class Validator extends EventEmitter {
 	}
 
 	checkTrees(trees) {
-		for (const [filePath, {cst, source}] of trees) {
-			this.checkTreeInner(filePath, cst, source);
+		for (const [filePath, cst] of trees) {
+			this.checkTreeInner(filePath, cst);
 		}
 		this.checkFullProgramEnd();
 		this.runDeferred();

@@ -32,6 +32,8 @@ npm
 /logs
 
 /node_modules
+test/__snapshots__
+test/parser/__snapshots__
 
 # boilerplate #
 ###############
