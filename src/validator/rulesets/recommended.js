@@ -48,6 +48,9 @@ module.exports = {
 			if (certainty !== 'unknown') return;
 			this.error(`%s:%s\n\n  %s\n\n  %%s Casting %s value %d into %s may lose precision.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), fromType, value, toType);
 		},
+		native_after_function(node, fileName, funcName) {
+			this.error(`%s:%s\n\n  %s\n\n  %%s Native %s defined after function declarations.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), funcName);
+		},
 		needless_return(node, fileName, funcName) {
 			this.error(`%s:%s\n\n  %s\n\n  %%s Needless return statement.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text));
 		},

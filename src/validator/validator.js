@@ -68,6 +68,8 @@ class Validator extends EventEmitter {
 		this.history = [];
 		this.controlFlow = new ControlFlow(this);
 		this.currentFunction = null;
+		this.functionCount = 0;
+		this.nativeCount = 0;
 		this.symbols = {
 			types: this.getInternalTypes(),
 			global: new Map(),
@@ -274,6 +276,11 @@ class Validator extends EventEmitter {
 		const parentNode = node.parent;
 		const isConstant = parentNode.firstNamedChild.type === 'ConstantAttribute';
 		const isNative = parentNode.type === 'NativeDeclaration';
+		if (isNative) {
+			this.nativeCount++;
+		} else {
+			this.functionCount++;
+		}
 		const symbol = {
 			name: symbolName,
 			node: node,
@@ -417,7 +424,6 @@ class Validator extends EventEmitter {
 		switch (node.type) {
 			case 'Literal': {
 				const inner = node.firstNamedChild;
-				const text = inner.text;
 
 				switch (inner.type) {
 					case 'Null':
@@ -840,7 +846,7 @@ class Validator extends EventEmitter {
 					this.emitNodeEvent(node, 'too_many_parameters', declName, symbol.parameters.length, 32);
 				}
 
-				if (node.parent.type === 'FunctionDeclaration') {
+				if (!symbol.isNative) {
 					for (const [declType, declName] of symbol.parameters) {
 						if (this.symbols.local.has(declName)) {
 							// Baseline PASS
@@ -851,8 +857,10 @@ class Validator extends EventEmitter {
 						}
 						this.registerLocalVariableFromParameter(node.parent, declName, declType);
 					}
+				} else if (this.functionCount > 0) {
+					// Baseline PASS
+					this.emitNodeEvent(node, 'native_after_function', declName);
 				}
-
 				break;
 			}
 			case 'GlobalDeclarationStatement': {
@@ -1481,6 +1489,14 @@ class Validator extends EventEmitter {
 			if (!symbolInfo.isReassigned && !symbolInfo.hasInitialValue && !symbolInfo.isArray) {
 				this.emitSymbolEvent(symbolInfo, 'never_initialized_global', symbolName, symbolInfo.type);
 			}
+		}
+
+		if (this.nativeCount === 0) {
+			this.emit('no_natives', null, null, '~', symbolName);
+		}
+
+		if (this.functionCount === 0) {
+			this.emit('no_functions', null, null, '~', symbolName);
 		}
 
 		for (const symbolName of entryPoints) {
