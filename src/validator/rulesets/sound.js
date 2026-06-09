@@ -56,12 +56,6 @@ module.exports = {
 		missing_return_control_flow(node, fileName, funcName) {
 			this.error(`%s:%s\n\n  %s\n\n  %%s Some branches of function %s do not have a return statement.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), funcName);
 		},
-		no_functions() {
-			this.error(`%s:%s\n\n  %s\n\n  %%s No function declarations found.\n`, '~', '~', '~');
-		},
-		no_natives() {
-			this.error(`%s:%s\n\n  %s\n\n  %%s No native declarations found.\n`, '~', '~', '~');
-		},
 		number_type_reinterpret(node, fileName, funcName, toType, fromType, value, desc) {
 			this.error(`%s:%s\n\n  %s\n\n  %%s Implicit bit-level reinterpretation of %s value %s into mangled %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), fromType, value, toType);
 		},

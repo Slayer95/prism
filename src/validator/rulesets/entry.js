@@ -23,5 +23,11 @@ module.exports = {
 		entrypoint_returns(node, fileName, ctx, symbolName) {
 			this.error(`%s:%s\n\n  %s\n\n  %%s Entrypoint '%s' should return nothing.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), symbolName);
 		},
+		no_functions() {
+			this.error(`%s:%s\n\n  %s\n\n  %%s No function declarations found.\n`, '~', '~', '~');
+		},
+		no_natives() {
+			this.error(`%s:%s\n\n  %s\n\n  %%s No native declarations found.\n`, '~', '~', '~');
+		},
 	},
 };
