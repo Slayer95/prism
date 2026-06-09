@@ -40,7 +40,7 @@ module.exports = {
 		},
 		function_non_existent(node, fileName, funcName, lifeCycle, calleeName) {
 			if (lifeCycle !== 'eager') return;
-			if (this.deferEvent(node, fileName, funcName, lifeCycle)) return;
+			if (this.deferEvent('function_non_existent', node, fileName, funcName, lifeCycle, calleeName)) return;
 			const definedNode = this.getSymbol(funcName)?.node;
 			if (definedNode) {
 				this.error(`%s:%s\n\n  %s\n\n  %%s Cannot call function %s before it's defined. Relocate it from L%d, or call it indirectly with TriggerExecute or ExecuteFunc.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), calleeName, definedNode.startPosition.row + 1);
@@ -60,6 +60,9 @@ module.exports = {
 		reserved_word(node, fileName, funcName, keyWord) {
 			this.error(`%s:%s\n\n  %s\n\n  %%s Keyword '%s' is reserved.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), keyWord);
 		},
+		return_null_primitive(node, fileName, funcName, expectedType, expressionType, initializerDesc) {
+			this.error(`%s:%s\n\n  %s\n\n  %%s Function '%s' must return an %s, not null.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), funcName, expectedType);
+		},
 		return_value_required(node, fileName, funcName, returnType) {
 			this.error(`%s:%s\n\n  %s\n\n  %%s Returned value of type %s is missing from %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), returnType, funcName);
 		},
@@ -74,6 +77,9 @@ module.exports = {
 			if (lifeCycle !== 'eager') return;
 			this.error(`%s:%s\n\n  %s\n\n  %%s Circular reference to variable %s in its declaration.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), variableName);
 		},
+		ternary_boolean(node, fileName, funcName, expectedType, expressionType, initializerDesc) {
+			this.error(`%s:%s\n\n  %s\n\n  %%s Expected a boolean, but got null.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), expectedType);
+		},
 		type_mismatch(node, fileName, funcName, expectedType, actualType, desc) {
 			this.error(`%s:%s\n\n  %s\n\n  %%s %s expected to be %s, but is %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), desc, expectedType, actualType);
 		},
@@ -85,7 +91,7 @@ module.exports = {
 		},
 		variable_non_existent(node, fileName, funcName, variableName) {
 			if (funcName === '~') {
-				if (this.deferEvent(node, fileName, funcName, variableName)) return;
+				if (this.deferEvent('variable_non_existent', node, fileName, funcName, variableName)) return;
 				const definedNode = this.getSymbol(variableName)?.node;
 				if (definedNode) {
 					this.error(`%s:%s\n\n  %s\n\n  %%s Cannot refer to global variable %s before it's defined. Relocate it from L%d.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), calleeName, definedNode.startPosition.row + 1);

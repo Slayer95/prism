@@ -12,7 +12,7 @@ const {ValidatorResult} = require('./../../lib/constants');
 
 const {
 	TypeInfo,
-	internalTypes, isNumberType, isPrimitiveType, isExtensibleType,
+	internalTypes, isNumberType, isPrimitiveType, isPrimitiveTypeOrCode, isExtensibleType,
 	isAPINeedsInitialization, isAPIHandleDestroyer, isAPINullUnsafe,
 	isEntryPoint, entryPoints, isReservedKeyword,
 } = require('./../language');
@@ -207,9 +207,6 @@ class Validator extends EventEmitter {
 			tree: this.currentTree,
 		}]);
 
-		if (!this.currentTree.rootNode) {
-			console.trace(`currentTree has no root WTF: `, this.currentTree);
-		}
 		const cursor = this.currentTree.rootNode.walk();
 		let reachedRoot = false;
 
@@ -416,7 +413,7 @@ class Validator extends EventEmitter {
 
 	resolveExpressionType(node /* any of Expression (inlined) nodes */) {
 		// Some call sites hand this wrapper node to the resolver.
-		if (node.type === 'FunctionArgument' || node.type === 'ParenthesizedExpression') {
+		if (node.type === 'FunctionArgument' || node.type === 'ParenthesizedExpression' || node.type === 'Initializer') {
 			const inner = node.firstNamedChild;
 			return inner ? this.resolveExpressionType(inner) : 'unknown';
 		}
@@ -725,10 +722,15 @@ class Validator extends EventEmitter {
 		if (expressionType === expectedType) {
 			return true;
 		}
-		if (expressionType === 'null' && isPrimitiveType(expectedType)) {
-			// Baseline PASS
-			this.emitNodeEvent(node, 'bad_null_assignment', expectedType, expressionType, initializerDesc);
-			return true;
+		const isNulledPrimitiveOrCode = expressionType === 'null' && isPrimitiveTypeOrCode(expectedType);
+		if (isNulledPrimitiveOrCode) {
+			if (expectedType === 'boolean') {
+				// Baseline FAIL
+				this.emitNodeEvent(node, 'ternary_boolean', expectedType, expressionType, initializerDesc);
+			} else {
+				// Baseline PASS
+				this.emitNodeEvent(node, 'bad_null_assignment', expectedType, expressionType, initializerDesc);
+			}
 		}
 		if (node.type === 'ReturnStatement') {
 			if (isNumberType(expressionType) && isNumberType(expectedType)) {
@@ -744,6 +746,11 @@ class Validator extends EventEmitter {
 				}
 				return true;
 			}
+			if (isNulledPrimitiveOrCode && expectedType !== 'boolean') {
+				// Baseline FAIL
+				this.emitNodeEvent(node, 'return_null_primitive', expectedType, expressionType, initializerDesc);
+			}
+			return false;
 		} else if (expressionType === 'real' && expectedType == 'integer') {
 			// Baseline FAIL
 			this.emitNodeEvent(node, 'type_mismatch', expectedType, expressionType, initializerDesc);
@@ -847,15 +854,25 @@ class Validator extends EventEmitter {
 				}
 
 				if (!symbol.isNative) {
-					for (const [declType, declName] of symbol.parameters) {
-						if (this.symbols.local.has(declName)) {
-							// Baseline PASS
-							this.emitNodeEvent(node, 'shadowing', 'parameter', 'local', 'local', declName);
-						} else if (this.symbols.global.has(declName)) {
-							// Baseline PASS
-							this.emitNodeEvent(node, 'shadowing', 'parameter', 'global', 'local', declName);
+					for (const [declType, declParamName] of symbol.parameters) {
+						const beforeParamSymbol = this.getSymbol(declParamName);
+						if (beforeParamSymbol) {
+							if (beforeParamSymbol.isType) {
+								// Baseline FAIL
+								this.emitNodeEvent(node, 'unexpected_type', declParamName, 'parameter');
+							} else if (!beforeParamSymbol.isGlobal) {
+								// Baseline PASS
+								this.emitNodeEvent(node, 'shadowing', 'parameter', 'local', 'local', declParamName);
+							} else if (this.symbols.global.has(declParamName)) {
+								// Baseline PASS
+								this.emitNodeEvent(node, 'shadowing', 'parameter', 'global', 'local', declParamName);
+							}
 						}
-						this.registerLocalVariableFromParameter(node.parent, declName, declType);
+						if (isReservedKeyword(declParamName)) {
+							// Baseline FAIL
+							this.emitNodeEvent(node, 'reserved_word', declParamName);
+						}
+						this.registerLocalVariableFromParameter(node.parent, declParamName, declType);
 					}
 				} else if (this.functionCount > 0) {
 					// Baseline PASS
@@ -1492,11 +1509,11 @@ class Validator extends EventEmitter {
 		}
 
 		if (this.nativeCount === 0) {
-			this.emit('no_natives', null, null, '~', symbolName);
+			this.emit('no_natives', null, null, '~');
 		}
 
 		if (this.functionCount === 0) {
-			this.emit('no_functions', null, null, '~', symbolName);
+			this.emit('no_functions', null, null, '~');
 		}
 
 		for (const symbolName of entryPoints) {

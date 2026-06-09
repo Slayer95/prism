@@ -4,7 +4,7 @@ const assert = require('assert/strict');
 const chalk = require('chalk');
 const util = require('util');
 
-const {renderLintCode} = require('./../../../lib');
+const {capitalize, renderLintCode} = require('./../../../lib');
 
 module.exports = {
 	handlers: {
@@ -31,7 +31,7 @@ module.exports = {
 		},
 		function_non_existent(node, fileName, funcName, lifeCycle, calleeName) {
 			if (lifeCycle !== 'deferred') return;
-			if (this.deferEvent(node, fileName, funcName, lifeCycle)) return;
+			if (this.deferEvent('function_non_existent', node, fileName, funcName, lifeCycle, calleeName)) return;
 			const definedNode = this.getSymbol(funcName)?.node;
 			if (!definedNode) {
 				this.error(`%s:%s\n\n  %s\n\n  %%s Function %s is not defined.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), calleeName);
@@ -69,7 +69,7 @@ module.exports = {
 			if (category === 'type') return;
 			const scopeFragment = beforeScope === 'local' ? `locally declared` : `globally declared`;
 			const categoryFragment = capitalize(category);
-			this.error(`%s:%s\n\n  %s\n\n  %%s %s %s is already %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), categoryFragment, declName, scopeFragment);
+			this.error(`%s:%s\n\n  %s\n\n  %%s %s %s is already %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), categoryFragment, variableName, scopeFragment);
 		},
 		string_too_long(node, fileName, funcName, value) {
 			this.error(`%s:%s\n\n  %s\n\n  %%s String ( %s ) is too long to be loaded from a literal.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), util.inspect(value, {maxStringLength: 10}));

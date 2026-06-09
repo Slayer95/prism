@@ -60,6 +60,9 @@ module.exports = {
 		noop_code(node, fileName, funcName, nodeType, category) {
 			this.error(`%s:%s\n\n  %s\n\n  %%s This instruction does nothing.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text));
 		},
+		null_string(node, fileName, funcName, expectedType, expressionType, initializerDesc) {
+			this.error(`%s:%s\n\n  %s\n\n  %%s Expected a string, but got null.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), expectedType);
+		},
 		number_type_punning(node, fileName, funcName, toType, fromType, value, desc) {
 			this.error(`%s:%s\n\n  %s\n\n  %%s Casting %s value %d into %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), fromType, value, toType);
 		},
