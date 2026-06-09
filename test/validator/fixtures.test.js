@@ -8,10 +8,21 @@ const assert = require('assert/strict');
 const common = require('./../common');
 const {ValidatorResult} = require('./../../lib/constants');
 
-const folders = ['should-check', 'should-fail', 'should-fail-sound'];
+const folders = ['should-check', 'should-fail', 'should-fail-sound', 'should-fail-recommended'];
 
 const CORE_RULESET = ['core'];
 const SOUND_RULESET = [...CORE_RULESET, 'sound'];
+
+// Recommended is very wide, and can fail for all sorts of reasons.
+// But I'll make do with it.
+const RECOMMENDED_RULESET = [...CORE_RULESET, 'sound', 'recommended'];
+
+const Rulesets = [
+	CORE_RULESET,
+	CORE_RULESET,
+	SOUND_RULESET,
+	RECOMMENDED_RULESET,
+];
 
 function reportResult(expected, value, desc) {
 	const success = value === ValidatorResult.kOk;
@@ -40,7 +51,7 @@ for (let i = 0; i < folders.length; i++) {
 		test(relPath, () => {
 			let result = null;
 			try {
-				result = common.validateFile(fixturePath, i >= 2 ? SOUND_RULESET : CORE_RULESET);
+				result = common.validateFile(fixturePath, Rulesets[i]);
 			} catch (err) {
 			}
 			if (!result) {
