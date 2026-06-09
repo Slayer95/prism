@@ -8,7 +8,10 @@ const assert = require('assert/strict');
 const common = require('./../common');
 const {ValidatorResult} = require('./../../lib/constants');
 
-const folders = ['should-check', 'should-fail'];
+const folders = ['should-check', 'should-fail', 'should-fail-sound'];
+
+const CORE_RULESET = ['core'];
+const SOUND_RULESET = [...CORE_RULESET, 'sound'];
 
 function reportResult(expected, value, desc) {
 	const success = value === ValidatorResult.kOk;
@@ -37,7 +40,7 @@ for (let i = 0; i < folders.length; i++) {
 		test(relPath, () => {
 			let result = null;
 			try {
-				result = common.validateFile(fixturePath);
+				result = common.validateFile(fixturePath, i >= 2 ? SOUND_RULESET : CORE_RULESET);
 			} catch (err) {
 			}
 			if (!result) {
