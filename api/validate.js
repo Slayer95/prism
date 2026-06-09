@@ -70,7 +70,7 @@ function main() {
 		console.error(util.format(error, chalk.red('error')));
 	}
 	for (const warning of warnings) {
-		if (warning.startsWith('../test/common.j') || warning.startsWith('../test/blizzard.j')) continue;
+		if (warning.startsWith('../t/common.j') || warning.startsWith('../t/blizzard.j')) continue;
 		console.error(util.format(warning, chalk.yellow('warn')));
 	}
 	console.log(util.format(`%s Parsed a total of %d nodes.`, chalk.green('info'), validator.nodeCount));
