@@ -24,21 +24,13 @@ const Rulesets = [
 	RECOMMENDED_RULESET,
 ];
 
-function reportResult(expected, value, desc) {
+function reportResult(expected, value, desc, output) {
 	const success = value === ValidatorResult.kOk;
-	if (expected === success) {
+	if (expected !== success) {
 		if (expected) {
-			console.log('should-check OK', desc);
+			assert.fail(new Error(`False positive at ${desc} - ${output ? JSON.stringify([...(output?.errors ?? []), ...(output?.warnings ?? [])]) : 'PARSER'}`));
 		} else {
-			console.log('should-fail OK', desc);
-		}
-	} else {
-		if (expected) {
-			console.log('should-check ERR', desc);
-			assert.fail(`False positive at ${desc}`);
-		} else {
-			console.log('should-fail ERR', desc);
-			assert.fail(`False negative at ${desc}`);
+			assert.fail(new Error(`False negative at ${desc} (passed unexpectedly)`));
 		}
 	}
 }
@@ -48,17 +40,22 @@ for (let i = 0; i < folders.length; i++) {
 	let folderName = folders[i];
 	for (const fixturePath of common.getFilesRecursive(path.resolve(__dirname, 'fixtures', folderName), '.j')) {
 		const relPath = path.relative(__dirname, fixturePath);
+		if (path.basename(fixturePath).startsWith('_')) {
+			// Bogus test or wrong JASS version.
+			continue;
+		}
 		test(relPath, () => {
 			let result = null;
 			try {
 				result = common.validateFile(fixturePath, Rulesets[i]);
 			} catch (err) {
+				throw new Error(`Internal error validating ${relPath}`, {cause: err});
 			}
 			if (!result) {
 				reportResult(expectValid, ValidatorResult.kError, relPath);
 				return;
 			}
-			reportResult(expectValid, result.result, relPath);
+			reportResult(expectValid, result.result, relPath, result);
 			//common.snapshot('fixtures', relPath, result);
 		});
 	}

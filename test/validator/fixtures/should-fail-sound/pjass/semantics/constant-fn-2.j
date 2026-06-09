@@ -1,4 +1,4 @@
 constant function x takes nothing returns integer
-    local integer y = 1
+    local integer y
     return y
 endfunction
