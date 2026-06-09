@@ -14,7 +14,7 @@ const {
 	TypeInfo,
 	internalTypes, isNumberType, isPrimitiveType, isExtensibleType,
 	isAPINeedsInitialization, isAPIHandleDestroyer, isAPINullUnsafe,
-	isEntryPoint, entryPoints,
+	isEntryPoint, entryPoints, isReservedKeyword,
 } = require('./../language');
 
 const {
@@ -401,6 +401,7 @@ class Validator extends EventEmitter {
 				initial: false,
 				deferred: false,
 			},
+			hasInitialValue: true,
 			isSyntacticFunction: false,
 			file: this.currentFile,
 		});
@@ -444,13 +445,13 @@ class Validator extends EventEmitter {
 			}
 
 			case 'VariableReference': {
-				const symbol = this.getSymbol(node.text);
+				const symbol = this.getNonTypeSymbol(node.text);
 				return symbol ? symbol.type : 'unknown';
 			}
 
 			case 'ArrayElement': {
 				const arrayNode = findChildNamed(node, 'array');
-				const symbol = this.getSymbol(arrayNode.text);
+				const symbol = this.getNonTypeSymbol(arrayNode.text);
 				return symbol ? symbol.type : 'unknown';
 			}
 
@@ -659,6 +660,22 @@ class Validator extends EventEmitter {
 		if (this.symbols.global.has(bindName)) {
 			return this.symbols.global.get(bindName);
 		}
+		if (this.symbols.types.has(bindName)) {
+			return this.symbols.types.get(bindName);
+		}
+		return null;
+	}
+
+	getNonTypeSymbol(bindName, fullyDefined = false) {
+		if (!fullyDefined && this.symbols.currentLocal?.[0] === bindName) {
+			return this.symbols.currentLocal[1];
+		}
+		if (this.symbols.local.has(bindName)) {
+			return this.symbols.local.get(bindName);
+		}
+		if (this.symbols.global.has(bindName)) {
+			return this.symbols.global.get(bindName);
+		}
 		return null;
 	}
 
@@ -797,20 +814,33 @@ class Validator extends EventEmitter {
 			}
 			case 'FunctionSignature': {
 				const declName = findChildNamed(node, 'name').text;
-				if (this.symbols.global.has(declName)) {
+				const beforeSymbol = this.getSymbol(declName);
+				if (beforeSymbol) {
+					if (beforeSymbol.isType) {
+						// Baseline FAIL
+						this.emitNodeEvent(node, 'unexpected_type', declName, 'function');
+					} else {
+						// Baseline FAIL
+						this.emitNodeEvent(node, 'shadowing', 'function', 'global', 'global', declName);
+					}
+				}
+				if (isReservedKeyword(declName)) {
 					// Baseline FAIL
-					this.emitNodeEvent(node, 'shadowing', 'function', 'global', 'global', declName);
+					this.emitNodeEvent(node, 'reserved_word', declName);
 				}
 				const symbol = this.registerFunction(node, declName)
+				this.currentFunction = symbol;
 
 				if (symbol.isConstant && !symbol.returnType && !symbol.isNative) {
 					// Baseline PASS
 					this.emitNodeEvent(node, 'void_constant_function', declName);
 				}
 
-				if (node.parent.type === 'FunctionDeclaration') {
-					this.currentFunction = symbol;
+				if (symbol.parameters.length >= 32) {
+					this.emitNodeEvent(node, 'too_many_parameters', declName, symbol.parameters.length, 32);
+				}
 
+				if (node.parent.type === 'FunctionDeclaration') {
 					for (const [declType, declName] of symbol.parameters) {
 						if (this.symbols.local.has(declName)) {
 							// Baseline PASS
@@ -830,20 +860,30 @@ class Validator extends EventEmitter {
 				const declTypeNode = findChildNamed(node, 'type');
 				const atomicType = declTypeNode.firstChild.text;
 				const initializerNode = ensureKind(node.lastChild, 'Initializer');
-				if (this.symbols.global.has(declName)) {
-					// Baseline FAIL
-					this.emitNodeEvent(node, 'shadowing', 'variable', 'global', 'global', declName);
+
+				const beforeSymbol = this.getSymbol(declName);
+				if (beforeSymbol) {
+					if (beforeSymbol.isType) {
+						// Baseline FAIL
+						this.emitNodeEvent(node, 'unexpected_type', declName, 'variable');
+					} else {
+						// Baseline FAIL
+						this.emitNodeEvent(node, 'shadowing', 'variable', 'global', 'global', declName);
+					}
 				}
 				if (isArrayTypeNode(declTypeNode) && this.symbols.types.get(atomicType)?.onlyAtomic) {
 					// Baseline FAIL
 					this.emitNodeEvent(node, 'array_unsupported', atomicType);
+				}
+				if (isReservedKeyword(declName)) {
+					// Baseline FAIL
+					this.emitNodeEvent(node, 'reserved_word', declName);
 				}
 				this.registerGlobalVariable(node, declName, declTypeNode)
 
 				if (initializerNode) {
 					this.validateNodeType(node, atomicType, initializerNode, `Initializer value for '${declName}'`)
 				}
-
 				break;
 			}
 			case 'LocalDeclarationStatement': {
@@ -851,16 +891,26 @@ class Validator extends EventEmitter {
 				const declTypeNode = findChildNamed(node, 'type');
 				const atomicType = declTypeNode.firstChild.text;
 				const initializerNode = ensureKind(node.lastChild, 'Initializer');
-				if (this.symbols.local.has(declName)) {
-					// Baseline PASS
-					this.emitNodeEvent(node, 'shadowing', 'variable', 'local', 'local', declName);
-				} else if (this.symbols.global.has(declName)) {
-					// Baseline PASS
-					this.emitNodeEvent(node, 'shadowing', 'variable', 'global', 'local', declName);
+				const beforeSymbol = this.getSymbol(declName, true);
+				if (beforeSymbol) {
+					if (beforeSymbol.isType) {
+						// Baseline FAIL
+						this.emitNodeEvent(node, 'unexpected_type', declName, 'variable');
+					} else if (beforeSymbol.isGlobal) {
+						// Baseline PASS
+						this.emitNodeEvent(node, 'shadowing', 'variable', 'global', 'local', declName);
+					} else {
+						// Baseline PASS
+						this.emitNodeEvent(node, 'shadowing', 'variable', 'local', 'local', declName);
+					}
 				}
 				if (isArrayTypeNode(declTypeNode) && this.symbols.types.get(atomicType)?.onlyAtomic) {
 					// Baseline FAIL
 					this.emitNodeEvent(node, 'array_unsupported', atomicType);
+				}
+				if (isReservedKeyword(declName)) {
+					// Baseline FAIL
+					this.emitNodeEvent(node, 'reserved_word', declName);
 				}
 				this.prepareRegisterLocalVariable(node, declName, declTypeNode);
 
@@ -956,7 +1006,7 @@ class Validator extends EventEmitter {
 						const subCalleeNode = argumentsNode ? extractNthArgument(argumentsNode, 0) : null;
 						if (subCalleeNode && (subCalleeNode.type === 'VariableReference' || subCalleeNode.type === 'ArrayElement')) {
 							const symbolName = subCalleeNode.type === 'VariableReference' ? subCalleeNode.text : subCalleeNode.firstNamedChild.text;
-							const symbolInfo = this.getSymbol(symbolName);
+							const symbolInfo = this.getNonTypeSymbol(symbolName);
 							if (symbolInfo?.isGlobal) {
 								const nextInstruction = getNextSignificantSibling(node);
 								if (!nextInstruction ||
@@ -975,7 +1025,7 @@ class Validator extends EventEmitter {
 						const subCalleeNode = argumentsNode ? extractNthArgument(argumentsNode, 0) : null;
 						if (subCalleeNode && subCalleeNode.type === 'VariableReference') {
 							const symbolName = subCalleeNode.text;
-							const symbolInfo = this.getSymbol(symbolName);
+							const symbolInfo = this.getNonTypeSymbol(symbolName);
 							if (symbolInfo?.isNulled?.deferred) {
 								// Baseline PASS
 								this.emitNodeEvent(node, 'api_receiver_unsafe_null', calleeName, symbolName, symbolInfo.type);
@@ -990,7 +1040,7 @@ class Validator extends EventEmitter {
 				const bindNode = findChildNamed(node, 'binding');
 				const isArraySet = bindNode.type === 'ArrayElement';
 				const bindName = isArraySet ? bindNode.firstChild.text : bindNode.text;
-				const declaredSymbol = this.getSymbol(bindName);
+				const declaredSymbol = this.getNonTypeSymbol(bindName);
 				/*
 				if (!declaredSymbol) 
 					// Baseline FAIL
@@ -1053,12 +1103,11 @@ class Validator extends EventEmitter {
 				if (!declaredSymbol) {
 					// Baseline FAIL
 					this.emitNodeEvent(node, 'function_non_existent', 'eager', funcName);
+				} else if (declaredSymbol.isType) {
+					this.emitNodeEvent(node, 'unexpected_type', funcName, 'function');
 				} else if (declaredSymbol.type !== 'code') {
 					this.emitNodeEvent(node, 'function_bad_type', funcName);
 				} else {
-					if (funcName === 'main') {
-						console.log('main is used');
-					}
 					declaredSymbol.isUsed = true;
 				}
 				break;
@@ -1079,6 +1128,8 @@ class Validator extends EventEmitter {
 				if (!declaredSymbol) {
 					// Baseline FAIL
 					this.emitNodeEvent(node, 'variable_non_existent', variableName);
+				} else if (declaredSymbol.isType) {
+					this.emitNodeEvent(node, 'unexpected_type', variableName, 'variable');
 				} else if (declaredSymbol.isTDZ) {
 					if (this.getSymbol(variableName, true)) {
 						// Baseline PASS - but it crashes the thread.
@@ -1107,7 +1158,9 @@ class Validator extends EventEmitter {
 				const indexNode = findChildNamed(node, 'index');
 				const declaredSymbol = this.getSymbol(arrayName);
 				if (declaredSymbol) {
-					if (!declaredSymbol.isArray) {
+					if (declaredSymbol.isType) {
+						this.emitNodeEvent(node, 'unexpected_type', variableName, 'variable');
+					} else if (!declaredSymbol.isArray) {
 						// Baseline FAIL
 						this.emitNodeEvent(node, 'array_access_incompatible', arrayName);
 					} else if (this.validateNodeType(node, 'integer', indexNode, `Index for '${arrayName}'`)) {
@@ -1264,6 +1317,13 @@ class Validator extends EventEmitter {
 				break;
 			}
 
+			case 'FunctionSignature': {
+				if (node.parent.type !== 'FunctionDeclaration') {
+					this.exitFunction();
+				}
+				break;
+			}
+
 			case 'VariableReference':
 			case 'ArrayElement': {
 				this.controlFlow.leave(node);
@@ -1396,6 +1456,9 @@ class Validator extends EventEmitter {
 					this.emitSymbolEvent(symbolInfo, 'unused_local_variable', symbolName);
 				}
 			}
+			if (!symbolInfo.isReassigned && !symbolInfo.hasInitialValue && !symbolInfo.isArray) {
+				this.emitSymbolEvent(symbolInfo, 'never_initialized_local', symbolName, symbolInfo.type);
+			}
 		}
 	}
 
@@ -1413,6 +1476,10 @@ class Validator extends EventEmitter {
 					// Baseline PASS
 					this.emitSymbolEvent(symbolInfo, 'unused_global_variable', symbolName);
 				}
+			}
+
+			if (!symbolInfo.isReassigned && !symbolInfo.hasInitialValue && !symbolInfo.isArray) {
+				this.emitSymbolEvent(symbolInfo, 'never_initialized_global', symbolName, symbolInfo.type);
 			}
 		}
 

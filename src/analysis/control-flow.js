@@ -228,7 +228,7 @@ class ControlFlow {
 
 			const returnedNode = node.namedChildCount > 0 ? getUnwrapParensDescendant(node.lastNamedChild) : null;
 			if (!(returnedNode?.type === 'CallExpression' && this.aboutFunctions.get(returnedNode.firstNamedChild.text)?.return.global)) {
-				if (!(returnedNode?.type === 'VariableReference' && this.validator.getSymbol(returnedNode.text)?.isGlobal)) {
+				if (!(returnedNode?.type === 'VariableReference' && this.validator.getNonTypeSymbol(returnedNode.text)?.isGlobal)) {
 					aboutFn.return.global = false;
 				}
 			}
@@ -267,14 +267,14 @@ class ControlFlow {
 		} else if (node.type === 'VariableReference') {
 			if (parentControlFlowNode !== null) {
 				const ioEntry = node.text;
-				const varInfo = this.validator.getSymbol(ioEntry);
+				const varInfo = this.validator.getNonTypeSymbol(ioEntry);
 				this.onLeaveVariable(node, parentControlFlowNode, ioEntry, varInfo);
 			}
 			return;
 		} else if (node.type === 'ArrayElement') {
 			if (parentControlFlowNode !== null) {
 				const ioEntry = `${node.firstNamedChild.text},${node.lastNamedChild.text}`;
-				const varInfo = this.validator.getSymbol(node.firstNamedChild.text);
+				const varInfo = this.validator.getNonTypeSymbol(node.firstNamedChild.text);
 				this.onLeaveVariable(node, parentControlFlowNode, ioEntry, varInfo);
 			}
 			return;

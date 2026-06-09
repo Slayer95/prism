@@ -59,6 +59,12 @@ module.exports = {
 		number_type_reinterpret(node, fileName, funcName, toType, fromType, value, desc) {
 			this.error(`%s:%s\n\n  %s\n\n  %%s Implicit bit-level reinterpretation of %s value %s into mangled %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), fromType, value, toType);
 		},
+		never_initialized_local(node, fileName, funcName, varName, varType) {
+			this.error(`%s:%s\n\n  %s\n\n  %%s Local variable %s of type '%s' was never initialized in %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), varName, varType, funcName);
+		},
+		never_initialized_global(node, fileName, funcName, varName, varType) {
+			this.error(`%s:%s\n\n  %s\n\n  %%s Global variable %s of type '%s' was never initialized.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), varName, varType);
+		},
 		shadowing(node, fileName, funcName, category, beforeScope, afterScope, variableName) {
 			if (category === 'type') return;
 			const scopeFragment = beforeScope === 'local' ? `locally declared` : `globally declared`;
@@ -71,6 +77,9 @@ module.exports = {
 		tdz_exception(node, fileName, funcName, lifeCycle, variableName) {
 			if (lifeCycle !== 'deferred') return;
 			this.error(`%s:%s\n\n  %s\n\n  %%s Circular reference to variable %s in its redeclaration.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), variableName);
+		},
+		too_many_parameters(node, fileName, funcName, declName, parameterCount, maxCount) {
+			this.error(`%s:%s\n\n  %s\n\n  %%s Function %s is declared with %d parameters. They must be less than %d.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), declName, parameterCount, maxCount);
 		},
 		void_constant_function(node, fileName, funcName, declName) {
 			this.error(`%s:%s\n\n  %s\n\n  %%s Function %s is declared constant, but returns nothing.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), declName);

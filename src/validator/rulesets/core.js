@@ -57,6 +57,9 @@ module.exports = {
 		recursive_function_local(node, fileName, funcName, calleeName) {
 			this.error(`%s:%s\n\n  %s\n\n  %%s Function %s cannot invoke itself from a local declaration.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), funcName);
 		},
+		reserved_word(node, fileName, funcName, keyWord) {
+			this.error(`%s:%s\n\n  %s\n\n  %%s Keyword '%s' is reserved.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), keyWord);
+		},
 		return_value_required(node, fileName, funcName, returnType) {
 			this.error(`%s:%s\n\n  %s\n\n  %%s Returned value of type %s is missing from %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), returnType, funcName);
 		},
@@ -76,6 +79,9 @@ module.exports = {
 		},
 		type_missing(node, fileName, funcName, typeName) {
 			this.error(`%s:%s\n\n  %s\n\n  %%s Type %s does not exist.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), typeName);
+		},
+		unexpected_type(node, fileName, funcName, category, typeName) {
+			this.error(`%s:%s\n\n  %s\n\n  %%s Type name '%s' cannot be reused as a %s name.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), typeName, category);
 		},
 		variable_non_existent(node, fileName, funcName, variableName) {
 			if (funcName === '~') {

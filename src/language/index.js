@@ -29,6 +29,11 @@ const unsafeNullAPIs = [
 	'TriggerExecute', 'ConditionalTriggerExecute',
 ];
 
+const reservedKeyWords = [
+	//...internalTypes,
+	'alias', 'type',
+];
+
 function isPrimitiveType(type) {
 	return primitiveTypes.includes(type);
 }
@@ -57,11 +62,17 @@ function isAPIHandleDestroyer(fnName) {
 	return handleDestroyerAPIs.has(fnName);
 }
 
+function isReservedKeyword(word) {
+	return reservedKeyWords.includes(word);
+}
+
 class TypeInfo {
 	constructor(name, parentType, onlyAtomic = false) {
 		this.name = name;
 		this.superTypes = parentType ? [parentType.name, ...parentType.superTypes] : [];
 		this.onlyAtomic = false;
+		this.isType = true;
+		this.type = 'type';
 	}
 
 	getExtends(superType) {
@@ -78,9 +89,11 @@ module.exports = {
 	primitiveTypes,
 	internalTypes,
 	entryPoints,
+	reservedKeyWords,
 
 	isAPINeedsInitialization,
 	isAPINullUnsafe,
 	isAPIHandleDestroyer,
 	isEntryPoint,
+	isReservedKeyword,
 };
