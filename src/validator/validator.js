@@ -1482,7 +1482,7 @@ class Validator extends EventEmitter {
 	}
 
 	checkFourCC(node, literal) {
-		let value = JSON.parse(`"${literal.slice(1, -1)}"`);
+		let value = literal.slice(1, -1);
 		if (!isASCII(value, 0, 4)) {
 			const bytes = Buffer.from(value, 'latin1');
 			const expected = fourCCUnsigned(bytes);
@@ -1490,14 +1490,18 @@ class Validator extends EventEmitter {
 			const expectedHex = `${optSign(expected)}0x${Math.abs(expected).toString(16)}`;
 			const actualHex = `${optSign(actual)}0x${Math.abs(actual).toString(16)}`;
 			const actualDec = actual.toString(10);
+			// Baseline PASS
 			this.emitNodeEvent(node, 'fourcc_signedness', value, expectedHex, actualDec, actualHex);
 		}
 	}
 
 	checkSignedChar(node, literal) {
-		let c = JSON.parse(`"${literal.slice(1, -1)}"`);
+		if (literal.charAt(1) === '"') return;
+		const parsable = `"${literal.slice(1, -1)}"`;
+		let c = JSON.parse(parsable);
 		let value = c.charCodeAt(0);
 		if (value >= 0x80) {
+			// Baseline PASS
 			this.emitNodeEvent(node, 'char_signedness', literal, signed8(value), value);
 		}
 	}
