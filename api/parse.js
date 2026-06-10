@@ -27,6 +27,12 @@ const cliOptions = {
 		short: 'q',
 		default: false,
 	},
+	dump: {
+		type: 'boolean',
+		multiple: false,
+		short: 'd',
+		default: false,
+	},
 };
 
 const cliConfig = {
@@ -41,6 +47,7 @@ function main() {
 	const {error, trees} = JASSParser.parseFiles(positionals);
 	for (const [filePath, tree] of trees) {
 		if (values.quiet) continue;
+		if (!values.dump) continue;
 		console.log(`# Tree for ${filePath}`);
 		console.log(tree.rootNode.toString());
 		console.log(``);
