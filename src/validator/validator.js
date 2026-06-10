@@ -1486,7 +1486,7 @@ class Validator extends EventEmitter {
 		if (!isASCII(value, 0, 4)) {
 			const bytes = Buffer.from(value.slice(1, -1), 'latin1');
 			const expected = fourCCUnsigned(bytes);
-			const actual = fourCCSigned(bytes.slice());
+			const actual = fourCCSigned(bytes);
 			const expectedHex = `${optSign(expected)}0x${Math.abs(expected).toString(16)}`;
 			const actualHex = `${optSign(actual)}0x${Math.abs(actual).toString(16)}`;
 			const actualDec = actual.toString(10);
