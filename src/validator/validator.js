@@ -606,8 +606,8 @@ class Validator extends EventEmitter {
 	}
 
 	getTrivialTestValue(node) {
-		if (node.type === 'ParenthesizedExpression') {
-			return this.getTrivialTestValue(node);
+		if (node.type === 'ParenthesizedExpression' || node.type === 'Initializer') {
+			return this.getTrivialTestValue(node.firstNamedChild);
 		}
 		if (node.type !== 'Literal') return null;
 		if (node.text === 'true') return true;
@@ -616,7 +616,7 @@ class Validator extends EventEmitter {
 	}
 
 	getTrivialNumberValue(expressionType, node) {
-		if (node.type === 'ParenthesizedExpression' || node.type === 'Literal' || node.type === 'FunctionArgument') {
+		if (node.type === 'ParenthesizedExpression' || node.type === 'Literal' || node.type === 'FunctionArgument' || node.type === 'Initializer') {
 			return this.getTrivialNumberValue(expressionType, node.firstNamedChild);
 		}
 
