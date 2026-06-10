@@ -1497,9 +1497,7 @@ class Validator extends EventEmitter {
 	}
 
 	checkSignedChar(node, literal) {
-		if (literal.charAt(1) === '"') return;
-		const parsable = `"${literal.slice(1, -1)}"`;
-		let c = JSON.parse(parsable);
+		const c = literal.length === 3 ? literal.charAt(1) : JSON.parse(`"${literal.slice(1, -1)}"`);
 		let value = c.charCodeAt(0);
 		if (value >= 0x80) {
 			// Baseline PASS
