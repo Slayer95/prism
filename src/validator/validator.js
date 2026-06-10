@@ -175,18 +175,18 @@ class Validator extends EventEmitter {
 	runDeferred() {
 		this.runningDeferred = true;
 		for (const deferredEvent of this.deferred) {
-			this.emit(deferredEvent[0], ...deferredEvent.slice(1));
+			this.emit(deferredEvent[0], deferredEvent[0], ...deferredEvent.slice(1));
 		}
 	}
 
 	emitNodeEvent(node, eventName, ...rest) {
 		const funcName = this.currentFunction?.name ?? '~';
-		return this.emit(eventName, node, this.currentFile, funcName, ...rest);
+		return this.emit(eventName, eventName, node, this.currentFile, funcName, ...rest);
 	}
 
 	emitSymbolEvent(symbol, eventName, ...rest) {
 		const funcName = this.currentFunction?.name ?? '~';
-		return this.emit(eventName, symbol.node, symbol.file, funcName, ...rest);
+		return this.emit(eventName, eventName, symbol.node, symbol.file, funcName, ...rest);
 	}
 
 	getInternalTypes() {
@@ -1556,17 +1556,17 @@ class Validator extends EventEmitter {
 		}
 
 		if (this.nativeCount === 0) {
-			this.emit('no_natives', null, null, '~');
+			this.emit('no_natives', 'no_natives', null, null, '~');
 		}
 
 		if (this.functionCount === 0) {
-			this.emit('no_functions', null, null, '~');
+			this.emit('no_functions', 'no_functions', null, null, '~');
 		}
 
 		for (const symbolName of entryPoints) {
 			const symbolInfo = this.symbols.global.get(symbolName);
 			if (!symbolInfo) {
-				this.emit('entrypoint_missing', null, null, '~', symbolName);
+				this.emit('entrypoint_missing', 'entrypoint_missing', null, null, '~', symbolName);
 			} else if (!symbolInfo.isSyntacticFunction) {
 				this.emitSymbolEvent(symbolInfo, 'entrypoint_nonfunction', symbolName);
 			} else if (symbolInfo.isConstant) {
