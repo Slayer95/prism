@@ -584,6 +584,16 @@ class Validator extends EventEmitter {
 					return 'real';
 				}
 
+				if (op === '%') {
+					if (this.options.spec !== 'jass3') {
+						this.emitNodeEvent(node, 'spec_mismatch', op, this.options.spec.toUpperCase(), 'jass3', `Modulo operator`, `ModuloInteger(dividend, divisor)`);
+					} else {
+						const lhsOk = this.validateInteger(node, lhsType, `Left-hand-side operand for '${op}'`);
+						const rhsOk = this.validateInteger(node, rhsType, `Right-hand-side operand for '${op}'`);
+					}
+					return 'integer';
+				}
+
 				return 'unknown';
 			}
 
@@ -793,6 +803,14 @@ class Validator extends EventEmitter {
 				return false;
 			}
 			return true;
+		}
+		return true;
+	}
+
+	validateInteger(node, expressionType, initializerDesc) {
+		if (expressionType !== 'unknown' && expressionType !== 'integer') {
+			this.emitNodeEvent(node, 'type_mismatch', 'integer', expressionType, initializerDesc);
+			return false;
 		}
 		return true;
 	}

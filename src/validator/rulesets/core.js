@@ -72,6 +72,9 @@ module.exports = {
 			if (category !== 'type') return;
 			this.critical(`%s:%s\n\n  %s\n\n  %s\n  %%s Type %s is already declared.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), chalk.cyan(`core/${eventName}`), declName);
 		},
+		spec_mismatch(eventName, node, fileName, funcName, operatorName, operatorRaw, actualSpec, needSpec, fallback) {
+			this.critical(`%s:%s\n\n  %s\n\n  %s\n  %%s %s (%s) is not allowed in %s. Run linter with -spec %s, or fallback to %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), chalk.cyan(`core/${eventName}`), operatorName, operatorRaw, actualSpec, needSpec, fallback);
+		},
 		tdz_exception(eventName, node, fileName, funcName, lifeCycle, variableName) {
 			if (lifeCycle !== 'eager') return;
 			this.critical(`%s:%s\n\n  %s\n\n  %s\n  %%s Circular reference to variable %s in its declaration.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), chalk.cyan(`core/${eventName}`), variableName);
