@@ -42,6 +42,7 @@ const {
 } = require('./../analysis/var-value');
 
 const {
+	isVariableReferenceArray,
 	isVariableReferenceAssignment,
 } = require('./../analysis/var-reference');
 
@@ -1151,8 +1152,8 @@ class Validator extends EventEmitter {
 				// set _[var] = _
 				this.controlFlow.enter(node);
 				const variableName = node.text;
-				const isArrayAccess = node.parent.type === 'ArrayElement' && (node === node.parent.firstNamedChild);
 				const isAssignment = isVariableReferenceAssignment(node);
+				const isArrayAccess = isVariableReferenceArray(node);
 				const declaredSymbol = this.getSymbol(variableName);
 				if (!declaredSymbol) {
 					// Baseline FAIL
