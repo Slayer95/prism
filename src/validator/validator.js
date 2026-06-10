@@ -1516,7 +1516,9 @@ class Validator extends EventEmitter {
 
 	checkFunctionEnd(node) {
 		if (!this.currentFunction.isConstant && !this.currentFunction.hasGlobalSet && !this.currentFunction.hasNonConstantCalls) {
-			this.emitNodeEvent(node, 'prefer_constant_function', this.currentFunction.name);
+			if (!isEntryPoint(this.currentFunction.name)) {
+				this.emitNodeEvent(node, 'prefer_constant_function', this.currentFunction.name);
+			}
 		}
 
 		for (const [symbolName, symbolInfo] of this.symbols.local) {

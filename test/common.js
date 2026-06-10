@@ -12,24 +12,6 @@ const {ValidatorResult} = require('./../lib/constants');
 const WITH_FILE_TYPES = {withFileTypes: true};
 const CORE_RULES = ['core'];
 
-//function serialize(node) {
-	//return node.toString();
-	/*return {
-		type: node.type,
-		text: node.text,
-		children: node.namedChildren.map(serialize) ?? []
-	};*/
-//}
-
-/*
-function ast(node) {
-	return {
-		type: node.type,
-		children: node.namedChildren.map(ast)
-	};
-}
-*/
-
 function validate(sourceCode, rules = CORE_RULES) {
 	throw new Error(sourceCode);
 	const {error, tree} = JASSParser.parse(sourceCode);

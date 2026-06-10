@@ -94,9 +94,9 @@ module.exports = {
 		},
 		unescaped_control(node, fileName, funcName, c) {
 			if (c === '\r' || c === '\n') {
-				this.error(`%s:%s\n\n  %s\n\n  %%s Use escape sequence %j instead of literal ${c === '\r' ? 'CR' : 'LF'} linebreak.\n`, chalk.yellow(fileName), chalk.yellow(unreachableNode.startPosition.row), renderLintCode(unreachableNode.text), c);
+				this.error(`%s:%s\n\n  %s\n\n  %%s Use escape sequence %j instead of literal ${c === '\r' ? 'CR' : 'LF'} linebreak.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), c);
 			} else {
-				this.error(`%s:%s\n\n  %s\n\n  %%s Use escape sequence %j instead of control character ${c.charCodeAt(0).toString(16).padStart(2, '0')}.\n`, chalk.yellow(fileName), chalk.yellow(unreachableNode.startPosition.row), renderLintCode(unreachableNode.text), c);
+				this.error(`%s:%s\n\n  %s\n\n  %%s Use escape sequence %j instead of control character ${c.charCodeAt(0).toString(16).padStart(2, '0')}.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), c);
 			}
 		},
 		unreachable_code(unreachableNode, fileName, funcName, returnsNode) {
