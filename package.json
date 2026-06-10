@@ -4,7 +4,8 @@
   "description": "Language and API analysis tooling for Warcraft III",
   "main": "index.js",
   "scripts": {
-    "test": "jest"
+    "test": "node --test",
+    "lint": "eslint ."
   },
   "jest": {
     "testEnvironment": "node"
@@ -34,7 +35,10 @@
   },
   "homepage": "https://github.com/Slayer95/prism#readme",
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^25.9.1",
+    "eslint": "^9.39.4",
+    "globals": "^17.6.0",
     "jest": "^29.7.0",
     "mocha": "^11.7.6",
     "ts-node": "^10.9.2",
