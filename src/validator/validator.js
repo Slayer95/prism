@@ -590,8 +590,8 @@ class Validator extends EventEmitter {
 					if (this.options.spec !== 'jass3') {
 						this.emitNodeEvent(node, 'spec_mismatch', op, this.options.spec.toUpperCase(), 'jass3', `Modulo operator`, `ModuloInteger(dividend, divisor)`);
 					} else {
-						const lhsOk = this.validateInteger(node, lhsType, `Left-hand-side operand for '${op}'`);
-						const rhsOk = this.validateInteger(node, rhsType, `Right-hand-side operand for '${op}'`);
+						this.validateInteger(node, lhsType, `Left-hand-side operand for '${op}'`);
+						this.validateInteger(node, rhsType, `Right-hand-side operand for '${op}'`);
 					}
 					return 'integer';
 				}
