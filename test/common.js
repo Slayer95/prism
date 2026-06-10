@@ -11,25 +11,26 @@ const JASSParser = require('./../src/parser/parser');
 
 const WITH_FILE_TYPES = {withFileTypes: true};
 const CORE_RULES = ['core'];
+const JASS2 = 'jass2';
 
 function validate(sourceCode, rules = CORE_RULES) {
 	const {error, tree} = JASSParser.parse(sourceCode);
 	if (error) throw error;
-	const validator = new Validator({rule: rules});
+	const validator = new Validator({rule: rules, spec: JASS2});
 	return validator.checkTree('~', tree);
 }
 
 function validateFile(filePath, rules = CORE_RULES) {
 	const {error, tree} = JASSParser.parseFile(filePath);
 	if (error) throw error;
-	const validator = new Validator({rule: rules});
+	const validator = new Validator({rule: rules, spec: JASS2});
 	return validator.checkTree(filePath, tree);
 }
 
 function validateFiles(filePaths, rules = CORE_RULES) {
 	const {error, trees} = JASSParser.parseFiles(filePaths);
 	if (error) throw error;
-	const validator = new Validator({rule: rules});
+	const validator = new Validator({rule: rules, spec: JASS2});
 	return validator.checkTrees(trees);
 }
 

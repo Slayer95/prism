@@ -23,6 +23,8 @@ const Rulesets = [
 	RECOMMENDED_RULESET,
 ];
 
+const TEST_ROOT = path.resolve(__dirname, '..');
+
 function reportResult(expected, value, desc, output) {
 	const success = value === ValidatorResult.kOk;
 	if (expected !== success) {
@@ -38,7 +40,7 @@ for (let i = 0; i < folders.length; i++) {
 	let expectValid = (i == 0);
 	let folderName = folders[i];
 	for (const fixturePath of common.getFilesRecursive(path.resolve(__dirname, 'fixtures', folderName), '.j')) {
-		const relPath = path.relative(__dirname, fixturePath);
+		const relPath = path.relative(TEST_ROOT, fixturePath);
 		if (path.basename(fixturePath).startsWith('_')) {
 			// Bogus test or wrong JASS version.
 			continue;
