@@ -49,6 +49,6 @@
     "chalk": "^4.1.2",
     "cytoscape": "^3.34.0",
     "tree-sitter": "^0.25.0",
-    "tree-sitter-jass": "github:Slayer95/tree-sitter-jass#main"
+    "tree-sitter-jass": "github:Slayer95/tree-sitter-jass#abi-14"
   }
 }
