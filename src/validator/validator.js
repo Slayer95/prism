@@ -227,7 +227,9 @@ class Validator extends EventEmitter {
 		this.currentFile = filePath;
 		this.currentTree = cst;
 		this.isLibrary = isLibrary;
-		this.libraries.push(filePath);
+		if (isLibrary) {
+			this.libraries.push(filePath);
+		}
 
 		this.history.push([{
 			// Ensure past trees aren't deallocated
