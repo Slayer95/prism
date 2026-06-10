@@ -1484,7 +1484,7 @@ class Validator extends EventEmitter {
 	checkFourCC(node, literal) {
 		let value = JSON.parse(`"${literal.slice(1, -1)}"`);
 		if (!isASCII(value, 0, 4)) {
-			const bytes = Buffer.from(value.slice(1, -1), 'latin1');
+			const bytes = Buffer.from(value, 'latin1');
 			const expected = fourCCUnsigned(bytes);
 			const actual = fourCCSigned(bytes);
 			const expectedHex = `${optSign(expected)}0x${Math.abs(expected).toString(16)}`;
