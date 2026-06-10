@@ -654,8 +654,6 @@ class Validator extends EventEmitter {
 			default:
 				return null;
 		}
-
-		return null;
 	}
 
 	getSymbol(bindName, fullyDefined = false) {
@@ -1189,7 +1187,7 @@ class Validator extends EventEmitter {
 				const declaredSymbol = this.getSymbol(arrayName);
 				if (declaredSymbol) {
 					if (declaredSymbol.isType) {
-						this.emitNodeEvent(node, 'unexpected_type', variableName, 'variable');
+						this.emitNodeEvent(node, 'unexpected_type', arrayName, 'variable');
 					} else if (!declaredSymbol.isArray) {
 						// Baseline FAIL
 						this.emitNodeEvent(node, 'array_access_incompatible', arrayName);

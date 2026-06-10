@@ -1,6 +1,6 @@
 "use strict";
 
-const assert = require('assert');
+//const assert = require('assert');
 const JassParser = require('../../src/parser/parser');
 const common = require('./../common');
 const test = require('node:test');

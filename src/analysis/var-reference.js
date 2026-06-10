@@ -1,6 +1,6 @@
 "use strict";
 
-const assert = require('assert');
+//const assert = require('assert');
 
 function isVariableReferenceArray(node /* VariableReference */) {
 	return node.parent.type === 'ArrayElement' && (node === node.parent.firstNamedChild);

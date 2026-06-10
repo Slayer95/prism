@@ -221,7 +221,7 @@ class ControlFlow {
 	}
 
 	onLeave(node, parentControlFlowNode) {
-		let nextSignificantNode = null;
+		let nextSignificantNode;
 		if (node.type === 'ReturnStatement') {
 			const aboutFn = this.about.get(this.currentFnNode);
 			//aboutFn.return.someTimes = true;
@@ -402,6 +402,7 @@ class ControlFlow {
 					if (aboutNode.return.always) {
 						const returnNode = aboutNode.return.node;
 						let prevNode = returnNode;
+						// eslint-disable-next-line no-cond-assign
 						while (prevNode = getPrevSignificantSibling(prevNode)) {
 							if (prevNode.type === 'ExitWhenStatement' || this.about.get(prevNode).exitwhen.someTimes) {
 								aboutNode.return.always = false;

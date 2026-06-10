@@ -2,7 +2,6 @@
 
 const assert = require('assert/strict');
 const chalk = require('chalk');
-const util = require('util');
 
 const {renderLintCode} = require('./../../../lib');
 
@@ -94,7 +93,7 @@ module.exports = {
 				if (this.deferEvent('variable_non_existent', node, fileName, funcName, variableName)) return;
 				const definedNode = this.getSymbol(variableName)?.node;
 				if (definedNode) {
-					this.error(`%s:%s\n\n  %s\n\n  %%s Cannot refer to global variable %s before it's defined. Relocate it from L%d.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), calleeName, definedNode.startPosition.row + 1);
+					this.error(`%s:%s\n\n  %s\n\n  %%s Cannot refer to global variable %s before it's defined. Relocate it from L%d.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), variableName, definedNode.startPosition.row + 1);
 				} else {
 					this.error(`%s:%s\n\n  %s\n\n  %%s Global variable %s does not exist.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), variableName);
 				}

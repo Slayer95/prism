@@ -21,6 +21,7 @@ function extractParameters(node /* FunctionParameterList | Empty */) {
 				findChildNamed(node, 'type').text,
 				findChildNamed(node, 'name').text,
 			]);
+		// eslint-disable-next-line no-cond-assign
 		} while (node = node.nextNamedSibling)
 		return list;
 	}

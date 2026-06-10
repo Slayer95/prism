@@ -1,6 +1,6 @@
 "use strict";
 
-const assert = require('assert');
+//const assert = require('assert');
 
 function isArrayTypeNode(typeNode /* ArrayType | AtomicType */) {
 	// return typeNode.childCount > 1;

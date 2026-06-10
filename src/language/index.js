@@ -1,9 +1,5 @@
 "use strict";
 
-const util = require('util');
-
-const constants = require('./../../lib/constants');
-
 const primitiveTypes = ['boolean', 'integer', 'real', 'string'];
 const internalTypes = [...primitiveTypes, 'code', 'handle'];
 const entryPoints = ['InitBlizzard', 'config', 'main'];
@@ -74,7 +70,7 @@ class TypeInfo {
 	constructor(name, parentType, onlyAtomic = false) {
 		this.name = name;
 		this.superTypes = parentType ? [parentType.name, ...parentType.superTypes] : [];
-		this.onlyAtomic = false;
+		this.onlyAtomic = onlyAtomic;
 		this.isType = true;
 		this.type = 'type';
 	}

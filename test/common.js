@@ -7,13 +7,12 @@ const util = require('util');
 
 const Validator = require('./../src/validator/validator');
 const JASSParser = require('./../src/parser/parser');
-const {ValidatorResult} = require('./../lib/constants');
+//const {ValidatorResult} = require('./../lib/constants');
 
 const WITH_FILE_TYPES = {withFileTypes: true};
 const CORE_RULES = ['core'];
 
 function validate(sourceCode, rules = CORE_RULES) {
-	throw new Error(sourceCode);
 	const {error, tree} = JASSParser.parse(sourceCode);
 	if (error) throw error;
 	const validator = new Validator({rule: rules});

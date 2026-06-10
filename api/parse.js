@@ -1,8 +1,5 @@
 "use strict";
 
-const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
 const util = require('util');
 const chalk = require('chalk');
 
