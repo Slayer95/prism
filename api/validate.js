@@ -32,6 +32,13 @@ const cliOptions = {
 		multiple: true,
 		short: 'r',
 	},
+	// Files may be passed either to library or to positionals.
+	// No errors nor warnings will be issued from 'library', unless they are called through critical().
+	library: {
+		type: 'string',
+		multiple: true,
+		short: 'l',
+	},
 };
 
 const cliConfig = {
@@ -43,13 +50,13 @@ const cliConfig = {
 
 function main() {
 	const {values, positionals} = util.parseArgs(cliConfig);
-	const {error, trees} = JASSParser.parseFiles(positionals);
+	const {error, trees} = JASSParser.parseFiles([...values.library ?? [], ...positionals]);
 	if (error) {
 		console.error(error.stack);
 		return;
 	}
 	const validator = new Validator(values);
-	const checkResult = validator.checkTrees(trees);
+	const checkResult = validator.checkTrees(trees, values.library?.length ?? 0);
 	const {result, errors, warnings} = checkResult;
 	for (const [keyName, stack] of Object.entries(validator.controlFlow.stack)) {
 		assert.strictEqual(stack.length, 0, `Control flow stack '${keyName}' not cleared`);
@@ -68,7 +75,6 @@ function main() {
 		console.error(util.format(error, chalk.red('error')));
 	}
 	for (const warning of warnings) {
-		if (warning.startsWith('../t/common.j') || warning.startsWith('../t/blizzard.j')) continue;
 		console.error(util.format(warning, chalk.yellow('warn')));
 	}
 	console.log(util.format(`%s Parsed a total of %d nodes.`, chalk.green('info'), validator.nodeCount));

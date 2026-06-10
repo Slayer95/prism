@@ -45,7 +45,7 @@ module.exports = {
 		},
 		lossy_type_cast(eventName, node, fileName, funcName, toType, fromType, certainty, value, desc) {
 			if (certainty !== 'unknown') return;
-			this.error(`%s:%s\n\n  %s\n\n  %s\n  %%s Casting %s value %d into %s may lose precision.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), chalk.cyan(`recommended/${eventName}`), fromType, value, toType);
+			this.error(`%s:%s\n\n  %s\n\n  %s\n  %%s Casting %s value %s into %s may lose precision.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), chalk.cyan(`recommended/${eventName}`), fromType, value, toType);
 		},
 		native_after_function(eventName, node, fileName, funcName) {
 			this.error(`%s:%s\n\n  %s\n\n  %s\n  %%s Native %s defined after function declarations.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), chalk.cyan(`recommended/${eventName}`), funcName);

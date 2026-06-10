@@ -30,6 +30,11 @@ const cliOptions = {
 		short: 'd',
 		default: false,
 	},
+	library: {
+		type: 'string',
+		multiple: true,
+		short: 'l',
+	},
 };
 
 const cliConfig = {
@@ -41,7 +46,7 @@ const cliConfig = {
 
 function main() {
 	const {values, positionals} = util.parseArgs(cliConfig);
-	const {error, trees} = JASSParser.parseFiles(positionals);
+	const {error, trees} = JASSParser.parseFiles([...library ?? [], ...positionals]);
 	for (const [filePath, tree] of trees) {
 		if (values.quiet) continue;
 		if (!values.dump) continue;

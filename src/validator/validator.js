@@ -70,6 +70,8 @@ class Validator extends EventEmitter {
 		this.runningDeferred = false;
 		this.currentFile = '';
 		this.currentTree = null;
+		this.isLibrary = false;
+		this.libraries = [];
 		this.history = [];
 		this.controlFlow = new ControlFlow(this);
 		this.currentFunction = null;
@@ -94,6 +96,8 @@ class Validator extends EventEmitter {
 		this.runningDeferred = false;
 		this.currentFile = '';
 		this.currentTree = null;
+		this.isLibrary = false;
+		this.libraries = [];
 		this.history = [];
 		this.controlFlow = new ControlFlow();
 		this.currentFunction = null;
@@ -107,6 +111,10 @@ class Validator extends EventEmitter {
 	}
 
 	warn(template, ...values) {
+		if (this.isLibrary) {
+			return;
+		}
+
 		this.warnings?.push(util.format(template, ...values));
 
 		if (this.result !== ValidatorResult.kError) {
@@ -115,6 +123,18 @@ class Validator extends EventEmitter {
 	}
 
 	error(template, ...values) {
+		if (this.isLibrary) {
+			return;
+		}
+
+		this.errors?.push(util.format(template, ...values));
+
+		if (this.result !== ValidatorResult.kError) {
+			this.result = ValidatorResult.kError;
+		}
+	}
+
+	critical(template, ...values) {
 		this.errors?.push(util.format(template, ...values));
 
 		if (this.result !== ValidatorResult.kError) {
@@ -168,14 +188,15 @@ class Validator extends EventEmitter {
 
 	deferEvent(...rest) {
 		if (this.runningDeferred) return false;
-		this.deferred.push([...rest]);
+		this.deferred.push([this.isLibrary, ...rest]);
 		return true;
 	}
 
 	runDeferred() {
 		this.runningDeferred = true;
 		for (const deferredEvent of this.deferred) {
-			this.emit(deferredEvent[0], deferredEvent[0], ...deferredEvent.slice(1));
+			this.isLibrary = deferredEvent[0];
+			this.emit(deferredEvent[1], deferredEvent[1], ...deferredEvent.slice(2));
 		}
 	}
 
@@ -202,9 +223,11 @@ class Validator extends EventEmitter {
 		this.symbols.local.clear();
 	}
 
-	checkTreeInner(filePath, cst) {
+	checkTreeInner(filePath, cst, isLibrary) {
 		this.currentFile = filePath;
 		this.currentTree = cst;
+		this.isLibrary = isLibrary;
+		this.libraries.push(filePath);
 
 		this.history.push([{
 			// Ensure past trees aren't deallocated
@@ -247,7 +270,7 @@ class Validator extends EventEmitter {
 
 	checkTree(filePath, cst) {
 		const hold = {cst};
-		this.checkTreeInner(filePath, hold.cst);
+		this.checkTreeInner(filePath, hold.cst, false);
 		this.checkFullProgramEnd();
 		this.runDeferred();
 		this.emit('end');
@@ -257,9 +280,9 @@ class Validator extends EventEmitter {
 		return out;
 	}
 
-	checkTrees(trees) {
+	checkTrees(trees, libCount) {
 		for (const [filePath, cst] of trees) {
-			this.checkTreeInner(filePath, cst);
+			this.checkTreeInner(filePath, cst, libCount-- > 0);
 		}
 		this.checkFullProgramEnd();
 		this.runDeferred();
@@ -1536,6 +1559,8 @@ class Validator extends EventEmitter {
 
 	checkFullProgramEnd() {
 		for (const [symbolName, symbolInfo] of this.symbols.global) {
+			this.isLibrary = this.libraries.includes(symbolInfo.file);
+
 			if (!symbolInfo.isConstant && !symbolInfo.isArray && !symbolInfo.isReassigned && !symbolInfo.isSyntacticFunction) {
 				this.emitNodeEvent(symbolInfo.node, 'prefer_constant_variable', symbolName, symbolInfo.type);
 			}
@@ -1554,6 +1579,8 @@ class Validator extends EventEmitter {
 				this.emitSymbolEvent(symbolInfo, 'never_initialized_global', symbolName, symbolInfo.type);
 			}
 		}
+
+		this.isLibrary = false;
 
 		if (this.nativeCount === 0) {
 			this.emit('no_natives', 'no_natives', null, null, '~');
