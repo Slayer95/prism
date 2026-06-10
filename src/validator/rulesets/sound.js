@@ -22,7 +22,7 @@ module.exports = {
 		},
 		char_signedness(node, fileName, funcName, literal, expected, actual) { 
 			// This may not look like a big deal, but it makes files invalid UTF8, so this rule is sound-level.
-			this.error(`%s:%s\n\n  %s\n\n  %%s Char %s is >= 128, so it will equal equal %s rather than %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), literal, actual, expected);
+			this.error(`%s:%s\n\n  %s\n\n  %%s Char %s is >= 128, so it will equal %s rather than %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), literal, actual, expected);
 		},
 		exitwhen_constant(node, fileName, funcName) {
 			this.error(`%s:%s\n\n  %s\n\n  %%s Loop exit condition is constant across all iterations.`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text));
