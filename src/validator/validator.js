@@ -441,7 +441,6 @@ class Validator extends EventEmitter {
 					case 'HexInteger': 
 					case 'FourCC': 
 					case 'SignedChar':
-					case 'Byte':
 						return 'integer';
 
 					case 'Real':
@@ -1342,7 +1341,6 @@ class Validator extends EventEmitter {
 				break;
 			}
 
-			case 'Byte':
 			case 'SignedChar': {
 				this.checkSignedChar(node, node.text);
 				break;
