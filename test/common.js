@@ -32,24 +32,24 @@ function ast(node) {
 
 function validate(sourceCode, rules = CORE_RULES) {
 	throw new Error(sourceCode);
-	const parsedTree = JASSParser.parse(sourceCode);
-	if (!parsedTree) return null;
+	const {error, tree} = JASSParser.parse(sourceCode);
+	if (error) throw error;
 	const validator = new Validator({rule: rules});
-	return validator.checkTree('~', parsedTree);
+	return validator.checkTree('~', tree);
 }
 
 function validateFile(filePath, rules = CORE_RULES) {
-	const parsedTree = JASSParser.parseFile(filePath);
-	if (!parsedTree) return null;
+	const {error, tree} = JASSParser.parseFile(filePath);
+	if (error) throw error;
 	const validator = new Validator({rule: rules});
-	return validator.checkTree(filePath, parsedTree);
+	return validator.checkTree(filePath, tree);
 }
 
 function validateFiles(filePaths, rules = CORE_RULES) {
-	const parsedTrees = JASSParser.parseFiles(filePaths);
-	if (!parsedTrees) return null;
+	const {error, trees} = JASSParser.parseFiles(filePaths);
+	if (error) throw error;
 	const validator = new Validator({rule: rules});
-	return validator.checkTrees(parsedTrees);
+	return validator.checkTrees(trees);
 }
 
 function* getFilesRecursive(rootFolder, extName) {

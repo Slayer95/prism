@@ -11,6 +11,10 @@ const JASS = require('tree-sitter-jass');
 const {ValidatorResult} = require('./../../lib/constants');
 
 const {
+	isASCII, fourCCSigned, fourCCUnsigned, optSign, signed8,
+} = require('./../../lib');
+
+const {
 	TypeInfo,
 	internalTypes, isNumberType, isPrimitiveType, isPrimitiveTypeOrCode, isExtensibleType,
 	isAPINeedsInitialization, isAPIHandleDestroyer, isAPINullUnsafe,
@@ -436,6 +440,7 @@ class Validator extends EventEmitter {
 					case 'OctalInteger': 
 					case 'HexInteger': 
 					case 'FourCC': 
+					case 'SignedChar':
 					case 'Byte':
 						return 'integer';
 
@@ -1331,6 +1336,17 @@ class Validator extends EventEmitter {
 				this.checkUnescaped(node, node.text);
 				break;
 			}
+
+			case 'FourCC': {
+				this.checkFourCC(node, node.text);
+				break;
+			}
+
+			case 'Byte':
+			case 'SignedChar': {
+				this.checkSignedChar(node, node.text);
+				break;
+			}
 		}
 		this.nodeCount = (this.nodeCount ? (this.nodeCount + 1) : 1);
 	}
@@ -1461,9 +1477,30 @@ class Validator extends EventEmitter {
 	}
 
 	checkStringSize(node, literal) {
-		if (Buffer.byteLength(literal) >= 1026) { /* counts quotes */
+		if (Buffer.byteLength(literal, 'latin1') >= 1026) { /* counts quotes */
 			// Baseline PASS
 			this.emitNodeEvent(node, 'string_too_long', literal);
+		}
+	}
+
+	checkFourCC(node, literal) {
+		let value = JSON.parse(`"${literal.slice(1, -1)}"`);
+		if (!isASCII(value, 1, 5)) {
+			const bytes = Buffer.from(value.slice(1, -1), 'latin1');
+			const expected = fourCCUnsigned(bytes);
+			const actual = fourCCSigned(bytes.slice());
+			const expectedHex = `${optSign(expected)}0x${Math.abs(expected).toString(16)}`;
+			const actualHex = `${optSign(actual)}0x${Math.abs(actual).toString(16)}`;
+			const actualDec = actual.toString(10);
+			this.emitNodeEvent(node, 'fourcc_signedness', value, expectedHex, actualDec, actualHex);
+		}
+	}
+
+	checkSignedChar(node, literal) {
+		let c = JSON.parse(`"${literal.slice(1, -1)}"`);
+		let value = c.charCodeAt(0);
+		if (value >= 0x80) {
+			this.emitNodeEvent(node, 'char_signedness', literal, signed8(value), value);
 		}
 	}
 

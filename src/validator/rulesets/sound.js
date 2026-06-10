@@ -20,6 +20,10 @@ module.exports = {
 			if (lifeCycle !== 'deferred') return;
 			this.error(`%s:%s\n\n  %s\n\n  %%s Function %s expects %d arguments, but was called with %d.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), calleeName, parameterCount, argumentCount);
 		},
+		char_signedness(node, fileName, funcName, literal, expected, actual) { 
+			// This may not look like a big deal, but it makes files invalid UTF8, so this rule is sound-level.
+			this.error(`%s:%s\n\n  %s\n\n  %%s Char %s is >= 128, so it will equal equal %s rather than %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), literal, actual, expected);
+		},
 		exitwhen_constant(node, fileName, funcName) {
 			this.error(`%s:%s\n\n  %s\n\n  %%s Loop exit condition is constant across all iterations.`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text));
 		},
@@ -48,6 +52,10 @@ module.exports = {
 		},
 		float32_overflow(node, fileName, funcName, value, literal) {
 			this.error(`%s:%s\n\n  %s\n\n  %%s Real value %s cannot be internally represented.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), literal);
+		},
+		fourcc_signedness(node, fileName, funcName, literal, expected, actual, actualHex) { 
+			// This may not look like a big deal, but it makes files invalid UTF8, so this rule is sound-level.
+			this.error(`%s:%s\n\n  %s\n\n  %%s Rawcode %s contains bytes >= 0x80, so it will equal %s (%s) rather than %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), literal, actual, actualHex, expected);
 		},
 		lossy_type_cast(node, fileName, funcName, toType, fromType, certainty, value, desc) {
 			if (certainty !== 'resolved') return;

@@ -49,7 +49,9 @@ for (let i = 0; i < folders.length; i++) {
 			try {
 				result = common.validateFile(fixturePath, Rulesets[i]);
 			} catch (err) {
-				throw new Error(`Internal error validating ${relPath}`, {cause: err});
+				if (err.name !== 'ParseError') {
+					throw new Error(`Internal error validating ${relPath}`, {cause: err});
+				}
 			}
 			if (!result) {
 				reportResult(expectValid, ValidatorResult.kError, relPath);

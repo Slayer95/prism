@@ -12,6 +12,7 @@ function Foo takes nothing returns nothing
 endfunction
 `;
 
-	const tree = JassParser.parse(source);
-	common.snapshot(path.basename(__filename), 'simple_function', '' + tree.rootNode);
+	const {error, tree} = JassParser.parse(source);
+	const serialized = error ? `<${error.message}>` : `${tree.rootNode}`;
+	common.snapshot(path.basename(__filename), 'simple_function', serialized);
 });
