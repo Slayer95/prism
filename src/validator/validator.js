@@ -55,7 +55,7 @@ const {
 	getUnwrapParensAncestor,
 } = require('./../../lib/tree-helpers');
 
-const ControlFlow = require('./../analysis/control-flow');
+const ASTInference = require('./../analysis/ast-inference');
 
 class Validator extends EventEmitter {
 	constructor(options) {
@@ -73,7 +73,7 @@ class Validator extends EventEmitter {
 		this.isLibrary = false;
 		this.libraries = [];
 		this.history = [];
-		this.controlFlow = new ControlFlow(this);
+		this.inferenceEngine = new ASTInference(this);
 		this.currentFunction = null;
 		this.functionCount = 0;
 		this.nativeCount = 0;
@@ -99,7 +99,7 @@ class Validator extends EventEmitter {
 		this.isLibrary = false;
 		this.libraries = [];
 		this.history = [];
-		this.controlFlow = new ControlFlow();
+		this.inferenceEngine = new ASTInference();
 		this.currentFunction = null;
 		this.symbols = {
 			types: this.getInternalTypes(),
@@ -1191,7 +1191,7 @@ class Validator extends EventEmitter {
 				// set var[_] = _
 				// call _(_[var])
 				// set _[var] = _
-				this.controlFlow.enter(node);
+				this.inferenceEngine.enter(node);
 				const variableName = node.text;
 				const isAssignment = isVariableReferenceAssignment(node);
 				const isArrayAccess = isVariableReferenceArray(node);
@@ -1224,7 +1224,7 @@ class Validator extends EventEmitter {
 			}
 
 			case 'ArrayElement': {
-				this.controlFlow.enter(node);
+				this.inferenceEngine.enter(node);
 				const arrayName = findChildNamed(node, 'array').text;
 				const indexNode = findChildNamed(node, 'index');
 				const declaredSymbol = this.getSymbol(arrayName);
@@ -1249,12 +1249,12 @@ class Validator extends EventEmitter {
 			}
 
 			case 'FunctionBody': {
-				this.controlFlow.enter(node);
+				this.inferenceEngine.enter(node);
 				break;
 			}
 
 			case 'LoopStatement': {
-				this.controlFlow.enter(node);
+				this.inferenceEngine.enter(node);
 				break;
 			}
 
@@ -1264,12 +1264,12 @@ class Validator extends EventEmitter {
 			case 'LConsequent':
 			case 'RAlternate':
 			case 'LAlternate': {
-				this.controlFlow.enter(node);
+				this.inferenceEngine.enter(node);
 				break;
 			}
 
 			case 'Test': {
-				this.controlFlow.enter(node);
+				this.inferenceEngine.enter(node);
 				const trivialValue = this.getTrivialTestValue(node);
 				if (trivialValue !== null) {
 					if (node.parent.type === 'ExitWhenStatement') {
@@ -1293,12 +1293,12 @@ class Validator extends EventEmitter {
 			}
 
 			case 'ExitWhenStatement': {
-				this.controlFlow.enter(node);
+				this.inferenceEngine.enter(node);
 				break;
 			}
 
 			case 'ReturnStatement': {
-				this.controlFlow.enter(node);
+				this.inferenceEngine.enter(node);
 				const returnsSomething = node.namedChildCount > 0;
 				const expectedReturnType = this.currentFunction.returnType;
 				if (returnsSomething === !expectedReturnType) {
@@ -1408,7 +1408,7 @@ class Validator extends EventEmitter {
 
 			case 'VariableReference':
 			case 'ArrayElement': {
-				this.controlFlow.leave(node);
+				this.inferenceEngine.leave(node);
 				break;
 			}
 
@@ -1419,7 +1419,7 @@ class Validator extends EventEmitter {
 			}
 
 			case 'LoopStatement': {
-				this.controlFlow.leave(node);
+				this.inferenceEngine.leave(node);
 				break;
 			}
 
@@ -1429,26 +1429,26 @@ class Validator extends EventEmitter {
 			case 'LConsequent':
 			case 'RAlternate':
 			case 'LAlternate': {
-				this.controlFlow.leave(node);
+				this.inferenceEngine.leave(node);
 				break;
 			}
 
 			case 'ReturnStatement': {
-				this.controlFlow.leave(node);
+				this.inferenceEngine.leave(node);
 				break;
 			}
 			case 'ExitWhenStatement': {
-				this.controlFlow.leave(node);
+				this.inferenceEngine.leave(node);
 				break;
 			}
 
 			case 'Test': {
-				this.controlFlow.leave(node);
+				this.inferenceEngine.leave(node);
 				break;
 			}
 
 			case 'FunctionBody': {
-				this.controlFlow.leave(node);
+				this.inferenceEngine.leave(node);
 				break;
 			}
 		}

@@ -18,6 +18,10 @@ const {
 } = require('./../../lib/iterable-helpers');
 
 const {
+	SyntaxStack,
+} = require('./../../lib/syntax-stack');
+
+const {
 	extractParameters,
 	extractReturnType,
 	extractNthArgument,
@@ -70,20 +74,14 @@ const {
 	toString: quantifierToString,
 } = require('./../logic/predicate');
 
-class ControlFlow {
+class ASTInference {
 	constructor(validator) { 
 		this.validator = validator;
 		this.currentNode = null;
 		this.currentFnNode = null;
 		this.currentLoopNode = null;
 		this.currentIfNode = null;
-		this.stack = {
-			global: [],
-			loop: [],
-			loopDepths: [],
-			if: [],
-			ifDepths: [],
-		};
+		this.stack = new SyntaxStack();
 		this.about = new Map();
 		this.aboutFunctions = new Map();
 	}
@@ -91,20 +89,19 @@ class ControlFlow {
 	enter(node) {
 		const ancestorNode = this.currentNode;
 		if (this.getIsNestedNodeType(node.type)) {
-			const stackDepth = this.stack.global.push(node) - 1;
 			this.currentNode = node;
 			if (node.type === 'LoopStatement') {
-				this.currentLoopNode = node;
-				this.stack.loop.push(node);
-				this.stack.loopDepths.push(stackDepth);
+				this.stack.push(node, 'loop');
+				this.currentLoopNode = this.stack.loop.peek();
 			} else if (isNodeTypeAnyRL(node, 'IfStatement')) {
-				this.stack.ifDepths.push(stackDepth);
-				this.stack.if.push([node, -1]);
-				this.currentIfNode = this.stack.if[this.stack.if.length - 1];
+				this.stack.push(node, 'if');
+				this.currentIfNode = this.stack.if.peek();
+			} else {
+				this.stack.push(node, 'other');
 			}
-			if (!this.validator.currentFunction) {
-				throw new Error(`No current function found when entering ${node.type} at ${node.parent.text}`);
-			}
+
+			assert(this.validator.currentFunction, `No current function found when entering ${node.type} in ${node.parent.text}`);
+
 			const aboutNode = {
 				branchCount: 1,
 				'exitwhen': {
@@ -158,65 +155,31 @@ class ControlFlow {
 
 	leave(node) {
 		const isNested = this.getIsNestedNodeType(node.type);
-		const parentControlFlowNode = isNested && this.stack.global.length >= 2 ? this.stack.global[this.stack.global.length - 2] : this.currentNode;
-		this.onLeave(node, parentControlFlowNode);
+		const ancestorNode = isNested ? this.stack.peek2() : this.currentNode;
+		this.onLeave(node, ancestorNode);
 		if (isNested) {
-			assert.equal(this.stack.global[this.stack.global.length - 1], node);
-			this.stack.global.pop();
-			this.currentNode = parentControlFlowNode;
+			this.stack.pop(node);
+			this.currentNode = ancestorNode;
 			if (!this.currentNode) this.currentFnNode = null;
 			if (node.type === 'LoopStatement') {
-				this.stack.loop.pop();
-				this.stack.loopDepths.pop();
-				this.currentLoopNode = this.stack.loop.length ? this.stack.loop[this.stack.loop.length - 1] : null;
+				this.currentLoopNode = this.stack.loop.peek();
 			} else if (isNodeTypeAnyRL(node, 'IfStatement')) {
-				this.stack.if.pop();
-				this.stack.ifDepths.pop();
-				this.currentIfNode = this.stack.if.length ? this.stack.if[this.stack.if.length - 1] : null;
+				this.currentIfNode = this.stack.if.peek();
 			} else if (isNodeTypeAnyRL(node, 'Consequent') || isNodeTypeAnyRL(node, 'Alternate')) {
-				this.currentIfNode[1]++;
+				this.currentIfNode.branch++;
 			}
 		}
-	}
-
-	getClosestInStack(type) {
-		for (let i = this.stack.length - 1; i >= 0; i--) {
-			if (this.stack[i].type === type) {
-				return this.stack[i];
-			}
-		}
-		return null;
-	}
-
-	getClosestInStackAnyRL(type) {
-		for (let i = this.stack.length - 1; i >= 0; i--) {
-			if (isNodeTypeAnyRL(this.stack[i], type)) {
-				return this.stack[i];
-			}
-		}
-		return null;
 	}
 
 	getIsNestedNodeType(nodeType) {
 		return (nodeType !== 'ReturnStatement' && nodeType !== 'VariableReference' && nodeType !== 'ArrayElement');
 	}
 
-	getIfStatementNodesInLoopStack() {
-		const globalDepthForLoop = this.stack.loopDepths[this.stack.loopDepths - 1];
-		for (let i = this.stack.ifDepths.length - 1; i >= 0; i--) {
-			if (globalDepthForLoop < this.stack.ifDepths[i]) {
-				continue;
-			}
-			return this.stack.if.slice(i + 1);
-		}
-		return this.stack.if.slice();
-	}
-
 	getExitWhenVariables(exitWhenNode, ifPath) {
 		const readVariables = new Set();
 		setHelpers.addMany(readVariables, this.about.get(exitWhenNode.firstNamedChild).variables.read);
-		for (const [ifNode, branchIdx] of ifPath) {
-			for (const testNode of getTestNodes(ifNode, branchIdx)) {
+		for (const {node, branch} of ifPath) {
+			for (const testNode of getTestNodes(node, branch)) {
 				setHelpers.addMany(readVariables, this.about.get(testNode).variables.read);
 			}
 		}
@@ -228,8 +191,8 @@ class ControlFlow {
 			exitWhenVariables.add(varName);
 			if (writeVariables.has(varName)) return true;
 		}
-		for (const [ifNode, branchIdx] of ifPath) {
-			for (const testNode of getTestNodes(ifNode, branchIdx)) {
+		for (const {node, branch} of ifPath) {
+			for (const testNode of getTestNodes(node, branch)) {
 				for (const varName of this.about.get(testNode).variables.read) {
 					exitWhenVariables.add(varName);
 					if (writeVariables.has(varName)) return true;
@@ -239,16 +202,16 @@ class ControlFlow {
 		return false;
 	}
 
-	onEnter(node, parentControlFlowNode) {
+	onEnter(node, ancestorNode) {
 		const loopAgnosticType = node.type.slice(1);
 		if (loopAgnosticType === 'IfStatement') {
 			this.about.get(node).branchCount = 2;
 		} else if (loopAgnosticType === 'Alternate' && node.parent.type.length !== `RElseStatement`.length) {
-			this.about.get(parentControlFlowNode).branchCount++;
+			this.about.get(ancestorNode).branchCount++;
 		}
 	}
 
-	onLeave(node, parentControlFlowNode) {
+	onLeave(node, ancestorNode) {
 		let nextSignificantNode;
 		if (node.type === 'ReturnStatement') {
 			const aboutFn = this.about.get(this.currentFnNode);
@@ -261,7 +224,7 @@ class ControlFlow {
 				}
 			}
 
-			const aboutAncestor = this.about.get(parentControlFlowNode);
+			const aboutAncestor = this.about.get(ancestorNode);
 			if (!aboutAncestor.return.node) {
 				aboutAncestor.return.node = node;
 				aboutFn.return.nodes.push(node);
@@ -275,37 +238,37 @@ class ControlFlow {
 			if ((nextSignificantNode = getNextSignificantSibling(node)) !== null) {
 				// Baseline PASS
 				this.validator.emitNodeEvent(nextSignificantNode, 'unreachable_code', 'return', node);
-			} else if (!aboutFn.return.needs && parentControlFlowNode === this.currentFnNode) {
+			} else if (!aboutFn.return.needs && ancestorNode === this.currentFnNode) {
 				// Baseline PASS
 				this.validator.emitNodeEvent(node, 'needless_return');
 			}
 			return;
 		} else if (node.type === 'ExitWhenStatement') {
-			const aboutAncestor = this.about.get(parentControlFlowNode);
+			const aboutAncestor = this.about.get(ancestorNode);
 			if (!isAlways(aboutAncestor.return.quantifier)) {
 				aboutAncestor.exitwhen.quantifier |= QuantifierBasis.kSome;
 
 				const aboutLoopAncestor = this.about.get(this.currentLoopNode);
 				const ifPathEntry = {
 					exitWhenNode: node,
-					ifPath: this.getIfStatementNodesInLoopStack(),
+					ifPath: this.stack.getIfStackInClosestLoop(),
 				};
 				aboutLoopAncestor.exitwhen.collected.push(ifPathEntry);
 			}
 			//setHelpers.addMany(aboutAncestor.exitwhen.variables, this.about.get(node.firstNamedChild).variables.read);
 			return;
 		} else if (node.type === 'VariableReference') {
-			if (parentControlFlowNode !== null) {
+			if (ancestorNode !== null) {
 				const ioEntry = node.text;
 				const varInfo = this.validator.getNonTypeSymbol(ioEntry);
-				this.onLeaveVariable(node, parentControlFlowNode, ioEntry, varInfo);
+				this.onLeaveVariable(node, ancestorNode, ioEntry, varInfo);
 			}
 			return;
 		} else if (node.type === 'ArrayElement') {
-			if (parentControlFlowNode !== null) {
+			if (ancestorNode !== null) {
 				const ioEntry = `${node.firstNamedChild.text},${node.lastNamedChild.text}`;
 				const varInfo = this.validator.getNonTypeSymbol(node.firstNamedChild.text);
-				this.onLeaveVariable(node, parentControlFlowNode, ioEntry, varInfo);
+				this.onLeaveVariable(node, ancestorNode, ioEntry, varInfo);
 			}
 			return;
 		} else if (node.type === 'Test') {
@@ -317,7 +280,7 @@ class ControlFlow {
 			return;
 		} else {
 			const aboutNode = this.about.get(node);
-			const aboutAncestor = parentControlFlowNode ? this.about.get(parentControlFlowNode) : null;
+			const aboutAncestor = ancestorNode ? this.about.get(ancestorNode) : null;
 			if (aboutAncestor) {
 				if (isSomeTimes(aboutNode.return.quantifier)) {
 					aboutAncestor.return.quantifier |= QuantifierBasis.kSome;
@@ -375,13 +338,13 @@ class ControlFlow {
 									thisHandleTracker.nulled.branches++;
 									thisHandleTracker.nulled.always = (thisHandleTracker.nulled.branches === aboutNode.branchCount);
 									if (thisHandleTracker.nulled.always) {
-										const aboutAncestor = this.about.get(parentControlFlowNode);
+										const aboutAncestor = this.about.get(ancestorNode);
 										aboutAncestor.handles.local.get(varName).lastSetNode = node;
 									}
 								}
 							} else {
 								// Control flow node that always nulls
-								const aboutAncestor = this.about.get(parentControlFlowNode);
+								const aboutAncestor = this.about.get(ancestorNode);
 								aboutAncestor.handles.local.get(varName).lastSetNode = node;
 							}
 						}
@@ -442,14 +405,14 @@ class ControlFlow {
 							}
 						}
 						if (aboutNode.return.always) {
-							const aboutAncestor = this.about.get(parentControlFlowNode);
+							const aboutAncestor = this.about.get(ancestorNode);
 							aboutAncestor.return.always = true;
 						}
 					}
 					*/
 
 					if (isAlways(aboutNode.return.quantifier)) {
-						const aboutAncestor = this.about.get(parentControlFlowNode);
+						const aboutAncestor = this.about.get(ancestorNode);
 						aboutAncestor.return.quantifier = Quantifier.kAlways;
 					}
 
@@ -465,18 +428,18 @@ class ControlFlow {
 						(aboutNode.return.branchesHave > 0 ? Quantifier.kSome : Quantifier.kNone)
 					);
 					if (isAlways(aboutNode.return.quantifier)) {
-						const aboutAncestor = this.about.get(parentControlFlowNode);
+						const aboutAncestor = this.about.get(ancestorNode);
 						aboutAncestor.return.quantifier = Quantifier.kAll;
 					}
-					if (isSomeTimes(aboutNode.exitwhen.quantifier) && parentControlFlowNode.type !== 'FunctionBody') {
-						const aboutAncestor = this.about.get(parentControlFlowNode);
+					if (isSomeTimes(aboutNode.exitwhen.quantifier) && ancestorNode.type !== 'FunctionBody') {
+						const aboutAncestor = this.about.get(ancestorNode);
 						aboutAncestor.exitwhen.quantifier |= QuantifierBasis.kSome;
 					}
 
 					for (const [varName, thisHandleTracker] of aboutNode.handles.local) {
 						thisHandleTracker.nulled.quantifier = (thisHandleTracker.nulled.branches === aboutNode.branchCount) ? Quantifier.kAll : Quantifier.kNone;
 						if (isAlways(thisHandleTracker.nulled.quantifier)) {
-							const aboutAncestor = this.about.get(parentControlFlowNode);
+							const aboutAncestor = this.about.get(ancestorNode);
 							let ancestorHandleTracker = aboutAncestor.handles.local.get(varName);
 							if (!ancestorHandleTracker) {
 								ancestorHandleTracker = new HandleTracker();
@@ -492,7 +455,7 @@ class ControlFlow {
 				case 'LConsequent':
 				case 'RAlternate':
 				case 'LAlternate': {
-					const aboutAncestor = this.about.get(parentControlFlowNode);
+					const aboutAncestor = this.about.get(ancestorNode);
 					if (isAlways(aboutNode.return.quantifier)) {
 						aboutAncestor.return.branchesHave++;
 					}
@@ -533,20 +496,20 @@ class ControlFlow {
 		}
 	}
 
-	trackVariableRead(node, parentControlFlowNode, ioEntry, varInfo /* maybe null */) {
+	trackVariableRead(node, ancestorNode, ioEntry, varInfo /* maybe null */) {
 		const aboutFnAncestor = this.about.get(this.currentFnNode);
 		aboutFnAncestor.variables.read.add(ioEntry);
-		if (parentControlFlowNode.type === 'Test') {
-			this.trackVariableTested(node, parentControlFlowNode, ioEntry, varInfo);
+		if (ancestorNode.type === 'Test') {
+			this.trackVariableTested(node, ancestorNode, ioEntry, varInfo);
 		}
 	}
 
-	trackVariableTested(node, parentControlFlowNode, ioEntry, varInfo /* maybe null */) {
-		const aboutTestNode = this.about.get(parentControlFlowNode);
+	trackVariableTested(node, ancestorNode, ioEntry, varInfo /* maybe null */) {
+		const aboutTestNode = this.about.get(ancestorNode);
 		aboutTestNode.variables.read.add(ioEntry);
 	}
 
-	trackVariableWrite(node, parentControlFlowNode, ioEntry, varInfo /* maybe null */) {
+	trackVariableWrite(node, ancestorNode, ioEntry, varInfo /* maybe null */) {
 		const aboutFnAncestor = this.about.get(this.currentFnNode);
 		aboutFnAncestor.variables.written.add(ioEntry);
 		if (this.currentLoopNode) {
@@ -555,7 +518,7 @@ class ControlFlow {
 		}
 	}
 
-	trackHandlePassByRef(node, parentControlFlowNode, ioEntry, varInfo, callExpressionNode) {
+	trackHandlePassByRef(node, ancestorNode, ioEntry, varInfo, callExpressionNode) {
 		/*
 		const aboutFnAncestor = this.about.get(this.currentFnNode);
 		aboutFnAncestor.variables.written.add(ioEntry);
@@ -563,24 +526,24 @@ class ControlFlow {
 			const aboutLoopAncestor = this.about.get(this.currentLoopNode);
 			aboutLoopAncestor.variables.written.add(ioEntry);
 		}*/
-		this.trackVariableWrite(node, parentControlFlowNode, ioEntry, varInfo);
+		this.trackVariableWrite(node, ancestorNode, ioEntry, varInfo);
 	}
 
-	onLeaveVariable(node, parentControlFlowNode, ioEntry, varInfo /* maybe null */) {
+	onLeaveVariable(node, ancestorNode, ioEntry, varInfo /* maybe null */) {
 		const aboutFnAncestor = this.about.get(this.currentFnNode);
 		const isAssignment = isVariableReferenceAssignment(node);
 		if (isAssignment) {
-			this.trackVariableWrite(node, parentControlFlowNode, ioEntry, varInfo);
+			this.trackVariableWrite(node, ancestorNode, ioEntry, varInfo);
 		} else {
-			this.trackVariableRead(node, parentControlFlowNode, ioEntry, varInfo);
+			this.trackVariableRead(node, ancestorNode, ioEntry, varInfo);
 		}
 
 		// Track handles
 		if (varInfo && isHandleType(varInfo.type)) {
-			const aboutAncestor = this.about.get(parentControlFlowNode);
+			const aboutAncestor = this.about.get(ancestorNode);
 			const callExpressionNode = getCallExpressionForFunctionArgumentOrWrapped(node);
 			if (callExpressionNode) {
-				this.trackHandlePassByRef(node, parentControlFlowNode, ioEntry, varInfo, callExpressionNode);
+				this.trackHandlePassByRef(node, ancestorNode, ioEntry, varInfo, callExpressionNode);
 			}
 			if (isAssignment && !varInfo.isGlobal && !varInfo.isParameter && !varInfo.isArray) {
 				let handleTracker = aboutAncestor.handles.local.get(varInfo.name);
@@ -595,4 +558,4 @@ class ControlFlow {
 	}
 }
 
-module.exports = ControlFlow;
+module.exports = ASTInference;
