@@ -260,6 +260,14 @@ function isPartitionAll(quantifiers) {
 	return isAlways(mergePartitionQuantifiers.lower(quantifiers));
 }
 
+function mayPartitionAny(quantifiers) {
+	return isSomeTimes(mergePartitionQuantifiers.upper(quantifiers));
+}
+
+function mayPartitionAll(quantifiers) {
+	return isAlways(mergePartitionQuantifiers.upper(quantifiers));
+}
+
 module.exports = {
 	QuantifierBasis,
 	Quantifier,
@@ -279,4 +287,7 @@ module.exports = {
 	isPartitionAll,
 	isPartitionEvery: isPartitionAll,
 	isPartitionUniversal: isPartitionAll,
+
+	mayPartitionAny,
+	mayPartitionAll,
 };
