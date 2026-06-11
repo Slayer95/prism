@@ -50,13 +50,23 @@ function isSomeTimes(quantifier) {
 }
 
 function isAlways(quantifier) {
-	return quantifier & QuantifierBasis.kSome > 0;
+	return quantifier === Quantifier.kAll;
+}
+
+function toString(quantifier) {
+	switch (quantifier) {
+		case Quantifier.kNone: return 'none';
+		case Quantifier.kSome: return 'some';
+		case Quantifier.kAll: return 'all';
+		default: return 'invalid';
+	}
 }
 
 module.exports = {
 	QuantifierBasis,
 	Quantifier,
 
+	toString,
 	isNever, isSomeTimes, isAlways,
 	mergePartitionQuantifiers,
 

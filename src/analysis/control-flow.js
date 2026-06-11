@@ -67,6 +67,7 @@ const {
 	isPartitionAny,
 	isPartitionEvery,
 	isNever, isSomeTimes, isAlways,
+	toString: quantifierToString,
 } = require('./../logic/predicate');
 
 class ControlFlow {
@@ -104,7 +105,7 @@ class ControlFlow {
 			if (!this.validator.currentFunction) {
 				throw new Error(`No current function found when entering ${node.type} at ${node.parent.text}`);
 			}
-			this.about.set(node, {
+			const aboutNode = {
 				branchCount: 1,
 				'exitwhen': {
 					//someTimes: false,
@@ -130,6 +131,20 @@ class ControlFlow {
 				},
 				'handles': {
 					local: new Map(),
+				},
+			};
+			this.about.set(node, aboutNode);
+			/* TODO: Remove this when stable */
+			aboutNode.return._quantifier = 0;
+			Object.defineProperty(aboutNode.return, 'quantifier', {
+				get() {
+					return this._quantifier;
+				},
+				set(val) {
+					if (val !== Quantifier.kNone && val !== Quantifier.kSome && val !== Quantifier.kAll) {
+						throw new Error(`Bad assignment ${val}`);
+					}
+					this._quantifier = val;
 				},
 			});
 			if (node.type === 'FunctionBody') {
@@ -249,6 +264,7 @@ class ControlFlow {
 			const aboutAncestor = this.about.get(parentControlFlowNode);
 			if (!aboutAncestor.return.node) {
 				aboutAncestor.return.node = node;
+				aboutFn.return.nodes.push(node);
 				if (isSomeTimes(aboutAncestor.exitwhen.quantifier)) {
 					aboutAncestor.return.quantifier = Quantifier.kSomeTimes;
 				} else {
@@ -444,7 +460,10 @@ class ControlFlow {
 
 				case 'RIfStatement':
 				case 'LIfStatement': {
-					aboutNode.return.quantifier = Quantifier.kAlways = (aboutNode.return.branchesHave === aboutNode.branchCount);
+					aboutNode.return.quantifier = (
+						(aboutNode.return.branchesHave === aboutNode.branchCount) ? Quantifier.kAlways :
+						(aboutNode.return.branchesHave > 0 ? Quantifier.kSome : Quantifier.kNone)
+					);
 					if (isAlways(aboutNode.return.quantifier)) {
 						const aboutAncestor = this.about.get(parentControlFlowNode);
 						aboutAncestor.return.quantifier = Quantifier.kAll;
