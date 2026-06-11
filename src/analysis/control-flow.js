@@ -9,7 +9,7 @@ const HandleTracker = require('./../../lib/handle-tracker');
 
 const {
 	TypeInfo,
-	internalTypes, isNumberType, isPrimitiveType,
+	internalTypes, isNumberType, isPrimitiveType, isHandleType,
 	isAPINeedsInitialization, isAPIHandleDestroyer, isAPINullUnsafe,
 } = require('./../language');
 
@@ -22,6 +22,7 @@ const {
 	extractReturnType,
 	extractNthArgument,
 	isFunctionArgument,
+	getCallExpressionForFunctionArgumentOrWrapped,
 } = require('./../analysis/function');
 
 const {
@@ -42,6 +43,7 @@ const {
 } = require('./../analysis/var-value');
 
 const {
+	isVariableReferenceArray,
 	isVariableReferenceAssignment,
 } = require('./../analysis/var-reference');
 
@@ -57,6 +59,15 @@ const {
 	isNodeTypeAnyRL,
 	assertNodeTypeAnyRL,
 } = require('./../../lib/tree-helpers');
+
+const {
+	Quantifier,
+	QuantifierBasis,
+	mergePartitionQuantifiers,
+	isPartitionAny,
+	isPartitionEvery,
+	isNever, isSomeTimes, isAlways,
+} = require('./../logic/predicate');
 
 class ControlFlow {
 	constructor(validator) { 
@@ -96,16 +107,18 @@ class ControlFlow {
 			this.about.set(node, {
 				branchCount: 1,
 				'exitwhen': {
-					someTimes: false,
+					//someTimes: false,
+					quantifier: Quantifier.kNone,
 					variables: new Set(),
 					collected: [/*{exitWhenNode: null, ifPath: []}*/],
 				},
 				'return': {
 					needs: !!this.validator.currentFunction.returnType,
 					type: this.validator.currentFunction.returnType,
-					always: false,
+					//always: false,
 					branchesHave: 0,
-					someTimes: false,
+					//someTimes: false,
+					quantifier: Quantifier.kNone,
 					global: !!this.validator.currentFunction.returnType,
 					node: null,
 					nodes: [],
@@ -236,9 +249,10 @@ class ControlFlow {
 			const aboutAncestor = this.about.get(parentControlFlowNode);
 			if (!aboutAncestor.return.node) {
 				aboutAncestor.return.node = node;
-				aboutAncestor.return.someTimes = true;
-				if (!aboutAncestor.exitwhen.someTimes) {
-					aboutAncestor.return.always = true;
+				if (isSomeTimes(aboutAncestor.exitwhen.quantifier)) {
+					aboutAncestor.return.quantifier = Quantifier.kSomeTimes;
+				} else {
+					aboutAncestor.return.quantifier = Quantifier.kAlways;
 				}
 			}
 
@@ -252,8 +266,8 @@ class ControlFlow {
 			return;
 		} else if (node.type === 'ExitWhenStatement') {
 			const aboutAncestor = this.about.get(parentControlFlowNode);
-			if (!aboutAncestor.return.always) {
-				aboutAncestor.exitwhen.someTimes = true;
+			if (!isAlways(aboutAncestor.return.quantifier)) {
+				aboutAncestor.exitwhen.quantifier |= QuantifierBasis.kSome;
 
 				const aboutLoopAncestor = this.about.get(this.currentLoopNode);
 				const ifPathEntry = {
@@ -289,22 +303,23 @@ class ControlFlow {
 			const aboutNode = this.about.get(node);
 			const aboutAncestor = parentControlFlowNode ? this.about.get(parentControlFlowNode) : null;
 			if (aboutAncestor) {
-				if (aboutNode.return.someTimes) {
-					aboutAncestor.return.someTimes = true;
+				if (isSomeTimes(aboutNode.return.quantifier)) {
+					aboutAncestor.return.quantifier |= QuantifierBasis.kSome;
 				}
 				if (!isLoopNode(node)) {
-					if (aboutNode.exitwhen.someTimes) {
-						aboutAncestor.exitwhen.someTimes = true;
+					// Propagate exitwhen to if blocks, but do not escape out of a loop.
+					if (isSomeTimes(aboutNode.exitwhen.quantifier)) {
+						aboutAncestor.exitwhen.quantifier |= QuantifierBasis.kSome;
 					}
 				}
 			}
 			switch (node.type) {
 				case 'FunctionBody': {
 					if (aboutNode.return.needs) {
-						if (!aboutNode.return.someTimes) {
+						if (!isSomeTimes(aboutNode.return.quantifier)) {
 							// Baseline FAIL
 							this.validator.emitNodeEvent(node, 'missing_return', aboutNode.return.type);
-						} else if (!aboutNode.return.always) {
+						} else if (!isAlways(aboutNode.return.quantifier)) {
 							// Baseline PASS
 							this.validator.emitNodeEvent(node, 'missing_return_control_flow', aboutNode.return.type);
 						}
@@ -361,7 +376,7 @@ class ControlFlow {
 				}
 
 				case 'LoopStatement': {
-					if (!aboutNode.exitwhen.someTimes && !aboutNode.return.someTimes) {
+					if (isNever(aboutNode.exitwhen.quantifier) && isNever(aboutNode.return.quantifier)) {
 						// Baseline PASS
 						this.validator.emitNodeEvent(node, 'infinite_loop');
 					}
@@ -399,12 +414,13 @@ class ControlFlow {
 						}
 					}
 
-					if (aboutNode.return.always) {
+					/*
+					if (isAlways(aboutNode.return.quantifier)) {
 						const returnNode = aboutNode.return.node;
 						let prevNode = returnNode;
 						// eslint-disable-next-line no-cond-assign
 						while (prevNode = getPrevSignificantSibling(prevNode)) {
-							if (prevNode.type === 'ExitWhenStatement' || this.about.get(prevNode).exitwhen.someTimes) {
+							if (prevNode.type === 'ExitWhenStatement' || isSomeTimes(this.about.get(prevNode).exitwhen.quantifier)) {
 								aboutNode.return.always = false;
 								break;
 							}
@@ -414,6 +430,12 @@ class ControlFlow {
 							aboutAncestor.return.always = true;
 						}
 					}
+					*/
+
+					if (isAlways(aboutNode.return.quantifier)) {
+						const aboutAncestor = this.about.get(parentControlFlowNode);
+						aboutAncestor.return.quantifier = Quantifier.kAlways;
+					}
 
 					// TODO: handle tracker
 					// Gotta track last SetStatement -> ExitWhen -> last SetStatement -> ExitWhen
@@ -422,19 +444,19 @@ class ControlFlow {
 
 				case 'RIfStatement':
 				case 'LIfStatement': {
-					aboutNode.return.always = (aboutNode.return.branchesHave === aboutNode.branchCount);
-					if (aboutNode.return.always) {
+					aboutNode.return.quantifier = Quantifier.kAlways = (aboutNode.return.branchesHave === aboutNode.branchCount);
+					if (isAlways(aboutNode.return.quantifier)) {
 						const aboutAncestor = this.about.get(parentControlFlowNode);
-						aboutAncestor.return.always = true;
+						aboutAncestor.return.quantifier = Quantifier.kAll;
 					}
-					if (aboutNode.exitwhen.someTimes && parentControlFlowNode.type !== 'FunctionBody') {
+					if (isSomeTimes(aboutNode.exitwhen.quantifier) && parentControlFlowNode.type !== 'FunctionBody') {
 						const aboutAncestor = this.about.get(parentControlFlowNode);
-						aboutAncestor.exitwhen.someTimes = true;
+						aboutAncestor.exitwhen.quantifier |= QuantifierBasis.kSome;
 					}
 
 					for (const [varName, thisHandleTracker] of aboutNode.handles.local) {
-						thisHandleTracker.nulled.always = (thisHandleTracker.nulled.branches === aboutNode.branchCount);
-						if (thisHandleTracker.nulled.always) {
+						thisHandleTracker.nulled.quantifier = (thisHandleTracker.nulled.branches === aboutNode.branchCount) ? Quantifier.kAll : Quantifier.kNone;
+						if (isAlways(thisHandleTracker.nulled.quantifier)) {
 							const aboutAncestor = this.about.get(parentControlFlowNode);
 							let ancestorHandleTracker = aboutAncestor.handles.local.get(varName);
 							if (!ancestorHandleTracker) {
@@ -452,11 +474,11 @@ class ControlFlow {
 				case 'RAlternate':
 				case 'LAlternate': {
 					const aboutAncestor = this.about.get(parentControlFlowNode);
-					if (aboutNode.return.always) {
+					if (isAlways(aboutNode.return.quantifier)) {
 						aboutAncestor.return.branchesHave++;
 					}
-					if (aboutNode.exitwhen.someTimes) {
-						aboutAncestor.exitwhen.someTimes = true;
+					if (isSomeTimes(aboutNode.exitwhen.quantifier)) {
+						aboutAncestor.exitwhen.quantifier |= QuantifierBasis.kSome;
 					}
 					for (const [varName, {lastSetNode}] of aboutNode.handles.local) {
 						const lastSetExpression = extractValueNodeFromSetStatement(lastSetNode);
@@ -476,7 +498,7 @@ class ControlFlow {
 					throw new Error(`Unreachable case - node.type was ${node.type}`);
 			}
 
-			if (aboutNode.return.always && node.type !== 'FunctionBody' && !isNodeTypeAnyRL(node.parent, 'IfStatement')) {
+			if (isAlways(aboutNode.return.quantifier) && node.type !== 'FunctionBody' && !isNodeTypeAnyRL(node.parent, 'IfStatement')) {
 				const fnNeedsReturn = this.about.get(this.currentFnNode).return.needs;
 				if (fnNeedsReturn) {
 					if ((nextSignificantNode = getNextSignificantSibling(node)) !== null) {
@@ -492,32 +514,54 @@ class ControlFlow {
 		}
 	}
 
-	onLeaveVariable(node, parentControlFlowNode, ioEntry, varInfo) {
+	trackVariableRead(node, parentControlFlowNode, ioEntry, varInfo /* maybe null */) {
+		const aboutFnAncestor = this.about.get(this.currentFnNode);
+		aboutFnAncestor.variables.read.add(ioEntry);
+		if (parentControlFlowNode.type === 'Test') {
+			this.trackVariableTested(node, parentControlFlowNode, ioEntry, varInfo);
+		}
+	}
+
+	trackVariableTested(node, parentControlFlowNode, ioEntry, varInfo /* maybe null */) {
+		const aboutTestNode = this.about.get(parentControlFlowNode);
+		aboutTestNode.variables.read.add(ioEntry);
+	}
+
+	trackVariableWrite(node, parentControlFlowNode, ioEntry, varInfo /* maybe null */) {
+		const aboutFnAncestor = this.about.get(this.currentFnNode);
+		aboutFnAncestor.variables.written.add(ioEntry);
+		if (this.currentLoopNode) {
+			const aboutLoopAncestor = this.about.get(this.currentLoopNode);
+			aboutLoopAncestor.variables.written.add(ioEntry);
+		}
+	}
+
+	trackHandlePassByRef(node, parentControlFlowNode, ioEntry, varInfo, callExpressionNode) {
+		/*
+		const aboutFnAncestor = this.about.get(this.currentFnNode);
+		aboutFnAncestor.variables.written.add(ioEntry);
+		if (this.currentLoopNode) {
+			const aboutLoopAncestor = this.about.get(this.currentLoopNode);
+			aboutLoopAncestor.variables.written.add(ioEntry);
+		}*/
+		this.trackVariableWrite(node, parentControlFlowNode, ioEntry, varInfo);
+	}
+
+	onLeaveVariable(node, parentControlFlowNode, ioEntry, varInfo /* maybe null */) {
 		const aboutFnAncestor = this.about.get(this.currentFnNode);
 		const isAssignment = isVariableReferenceAssignment(node);
-		if (parentControlFlowNode.type === 'Test') {
-			const aboutAncestor = this.about.get(parentControlFlowNode);
-			aboutAncestor.variables.read.add(ioEntry);
-			aboutFnAncestor.variables.read.add(ioEntry);
-		} else if (isAssignment) {
-			if (this.currentLoopNode) {
-				const aboutLoopAncestor = this.about.get(this.currentLoopNode);
-				aboutLoopAncestor.variables.written.add(ioEntry);
-			}
-			aboutFnAncestor.variables.written.add(ioEntry);
+		if (isAssignment) {
+			this.trackVariableWrite(node, parentControlFlowNode, ioEntry, varInfo);
 		} else {
-			aboutFnAncestor.variables.read.add(ioEntry);
+			this.trackVariableRead(node, parentControlFlowNode, ioEntry, varInfo);
 		}
 
 		// Track handles
-		if (varInfo && !isPrimitiveType(varInfo.type)) {
+		if (varInfo && isHandleType(varInfo.type)) {
 			const aboutAncestor = this.about.get(parentControlFlowNode);
-			if (isFunctionArgument(node)) {
-				aboutFnAncestor.variables.written.add(ioEntry);
-				if (this.currentLoopNode) {
-					const aboutLoopAncestor = this.about.get(this.currentLoopNode);
-					aboutLoopAncestor.variables.written.add(ioEntry);
-				}
+			const callExpressionNode = getCallExpressionForFunctionArgumentOrWrapped(node);
+			if (callExpressionNode) {
+				this.trackHandlePassByRef(node, parentControlFlowNode, ioEntry, varInfo, callExpressionNode);
 			}
 			if (isAssignment && !varInfo.isGlobal && !varInfo.isParameter && !varInfo.isArray) {
 				let handleTracker = aboutAncestor.handles.local.get(varInfo.name);

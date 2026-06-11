@@ -50,9 +50,33 @@ function isFunctionArgument(node) {
 	return getUnwrapParensAncestor(node.parent).type === 'FunctionArgument';
 }
 
+function getCallExpressionName(node) {
+	return node.firstNamedChild.text;
+}
+
+function getCallExpressionForFunctionArgument(node) {
+	assert.equal(node.parent.type, 'FunctionArgumentList');
+	return node.parent.parent;
+}
+
+function getCallExpressionForFunctionArgumentOrWrapped(node) {
+	if (node.type === 'FunctionArgument') return getCallExpressionForFunctionArgument(node);
+	const ancestor = getUnwrapParensAncestor(node.parent);
+	if (ancestor.type === 'FunctionArgument') return getCallExpressionForFunctionArgument(ancestor);
+	return null;
+}
+
+function getCalleeNameIfFunctionArgument(node) {
+	const calleeNode = getCalleeIfFunctionArgument(node);
+}
+
 module.exports = {
 	extractParameters,
 	extractReturnType,
 	extractNthArgument,
 	isFunctionArgument,
+	getCallExpressionName,
+	getCallExpressionForFunctionArgument,
+	getCallExpressionForFunctionArgumentOrWrapped,
+	getCalleeNameIfFunctionArgument,
 };
