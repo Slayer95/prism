@@ -10,7 +10,6 @@ const HandleTracker = require('./../../lib/handle-tracker');
 const {
 	TypeInfo,
 	internalTypes, isNumberType, isPrimitiveType, isHandleType,
-	isAPINeedsInitialization, isAPIHandleDestroyer, isAPINullUnsafe,
 } = require('./../language');
 
 const {
@@ -22,42 +21,38 @@ const {
 } = require('./../../lib/syntax-stack');
 
 const {
-	extractParameters,
-	extractReturnType,
-	extractNthArgument,
-	isFunctionArgument,
 	getCallExpressionForFunctionArgumentOrWrapped,
-} = require('./../analysis/function');
+} = require('./../language/function');
 
 const {
 	isLoopNode,
-} = require('./../analysis/loop');
+} = require('./../language/loop');
 
 const {
 	getTestNodes,
-} = require('./../analysis/if');
+} = require('./../language/if');
 
 const {
 	isArrayTypeNode,
-} = require('./../analysis/var-declaration');
+} = require('./../language/var-declaration');
 
 const {
 	extractValueNodeFromSetStatement,
 	extractValueNodeFromDeclaration,
-} = require('./../analysis/var-value');
+} = require('./../language/var-value');
 
 const {
 	isVariableReferenceArray,
 	isVariableReferenceAssignment,
-} = require('./../analysis/var-reference');
+} = require('./../language/var-reference');
 
 const {
 	getPrevSignificantSibling,
 	getNextSignificantSibling,
 	getSignificantSiblingsBefore,
 	getSignificantSiblingsAfter,
-	getUnwrapParensDescendant,
-	getUnwrapParensAncestor,
+	getInsideParens,
+	getOutsideParens,
 	isLastSignificantSibling,
 	getClosestAnyRL,
 	isNodeTypeAnyRL,
@@ -74,13 +69,15 @@ const {
 	toString: quantifierToString,
 } = require('./../logic/predicate');
 
+const N2I = require('./../language/n2i');
+
 class ASTInference {
 	constructor(validator) { 
 		this.validator = validator;
 		this.currentNode = null;
 		this.currentFnNode = null;
-		this.currentLoopNode = null;
-		this.currentIfNode = null;
+		this.currentLoopFrame = null;
+		this.currentIfFrame = null;
 		this.stack = new SyntaxStack();
 		this.about = new Map();
 		this.aboutFunctions = new Map();
@@ -92,10 +89,10 @@ class ASTInference {
 			this.currentNode = node;
 			if (node.type === 'LoopStatement') {
 				this.stack.push(node, 'loop');
-				this.currentLoopNode = this.stack.loop.peek();
+				this.currentLoopFrame = this.stack.loop.peek();
 			} else if (isNodeTypeAnyRL(node, 'IfStatement')) {
 				this.stack.push(node, 'if');
-				this.currentIfNode = this.stack.if.peek();
+				this.currentIfFrame = this.stack.if.peek();
 			} else {
 				this.stack.push(node, 'other');
 			}
@@ -162,11 +159,11 @@ class ASTInference {
 			this.currentNode = ancestorNode;
 			if (!this.currentNode) this.currentFnNode = null;
 			if (node.type === 'LoopStatement') {
-				this.currentLoopNode = this.stack.loop.peek();
+				this.currentLoopFrame = this.stack.loop.peek();
 			} else if (isNodeTypeAnyRL(node, 'IfStatement')) {
-				this.currentIfNode = this.stack.if.peek();
+				this.currentIfFrame = this.stack.if.peek();
 			} else if (isNodeTypeAnyRL(node, 'Consequent') || isNodeTypeAnyRL(node, 'Alternate')) {
-				this.currentIfNode.branch++;
+				this.currentIfFrame.branch++;
 			}
 		}
 	}
@@ -202,6 +199,20 @@ class ASTInference {
 		return false;
 	}
 
+	getIsGlobalReturn(node /* ReturnStatement */) {
+		const returnedNode = node.namedChildCount > 0 ? getInsideParens(node.lastNamedChild) : null;
+		if (!returnedNode) {
+			return false;
+		}
+		if (returnedNode.type === 'CallExpression' && this.aboutFunctions.get(N2I.CallExpression.extractCalleeName(returnedNode))?.return.global) {
+			return true;
+		}
+		if (returnedNode.type === 'VariableReference' && this.validator.getNonTypeSymbol(returnedNode.text)?.isGlobal) {
+			return true;
+		}
+		return false;
+	}
+
 	onEnter(node, ancestorNode) {
 		const loopAgnosticType = node.type.slice(1);
 		if (loopAgnosticType === 'IfStatement') {
@@ -215,13 +226,8 @@ class ASTInference {
 		let nextSignificantNode;
 		if (node.type === 'ReturnStatement') {
 			const aboutFn = this.about.get(this.currentFnNode);
-			//aboutFn.return.someTimes = true;
-
-			const returnedNode = node.namedChildCount > 0 ? getUnwrapParensDescendant(node.lastNamedChild) : null;
-			if (!(returnedNode?.type === 'CallExpression' && this.aboutFunctions.get(returnedNode.firstNamedChild.text)?.return.global)) {
-				if (!(returnedNode?.type === 'VariableReference' && this.validator.getNonTypeSymbol(returnedNode.text)?.isGlobal)) {
-					aboutFn.return.global = false;
-				}
+			if (!this.getIsGlobalReturn(node)) {
+				aboutFn.return.global = false;
 			}
 
 			const aboutAncestor = this.about.get(ancestorNode);
@@ -248,14 +254,12 @@ class ASTInference {
 			if (!isAlways(aboutAncestor.return.quantifier)) {
 				aboutAncestor.exitwhen.quantifier |= QuantifierBasis.kSome;
 
-				const aboutLoopAncestor = this.about.get(this.currentLoopNode);
-				const ifPathEntry = {
+				const aboutLoopAncestor = this.about.get(this.currentLoopFrame.node);
+				aboutLoopAncestor.exitwhen.collected.push({
 					exitWhenNode: node,
 					ifPath: this.stack.getIfStackInClosestLoop(),
-				};
-				aboutLoopAncestor.exitwhen.collected.push(ifPathEntry);
+				});
 			}
-			//setHelpers.addMany(aboutAncestor.exitwhen.variables, this.about.get(node.firstNamedChild).variables.read);
 			return;
 		} else if (node.type === 'VariableReference') {
 			if (ancestorNode !== null) {
@@ -273,8 +277,8 @@ class ASTInference {
 			return;
 		} else if (node.type === 'Test') {
 			if (node.parent.type !== 'ExitWhenStatement') {
-				const ifAncestor = getClosestAnyRL(node, 'IfStatement');
-				const aboutIfAncestor = this.about.get(ifAncestor);
+				const ifAncestor = this.stack.if.peek();
+				const aboutIfAncestor = this.about.get(ifAncestor.node);
 				aboutIfAncestor.tests.push(node);
 			}
 			return;
@@ -282,20 +286,19 @@ class ASTInference {
 			const aboutNode = this.about.get(node);
 			const aboutAncestor = ancestorNode ? this.about.get(ancestorNode) : null;
 			if (aboutAncestor) {
+				// Propagate return and exitwhen upwards,
+				// but make sure exitwhen does not escape the closest loop.
 				if (isSomeTimes(aboutNode.return.quantifier)) {
 					aboutAncestor.return.quantifier |= QuantifierBasis.kSome;
 				}
-				if (!isLoopNode(node)) {
-					// Propagate exitwhen to if blocks, but do not escape out of a loop.
-					if (isSomeTimes(aboutNode.exitwhen.quantifier)) {
-						aboutAncestor.exitwhen.quantifier |= QuantifierBasis.kSome;
-					}
+				if (!isLoopNode(node) && isSomeTimes(aboutNode.exitwhen.quantifier)) {
+					aboutAncestor.exitwhen.quantifier |= QuantifierBasis.kSome;
 				}
 			}
 			switch (node.type) {
 				case 'FunctionBody': {
 					if (aboutNode.return.needs) {
-						if (!isSomeTimes(aboutNode.return.quantifier)) {
+						if (isNever(aboutNode.return.quantifier)) {
 							// Baseline FAIL
 							this.validator.emitNodeEvent(node, 'missing_return', aboutNode.return.type);
 						} else if (!isAlways(aboutNode.return.quantifier)) {
@@ -304,7 +307,7 @@ class ASTInference {
 						}
 					}
 					for (const [varName, varInfo] of this.validator.symbols.local) {
-						if (!varInfo.isParameter && !isPrimitiveType(varInfo.type) && !varInfo.isArray) {
+						if (!varInfo.isParameter && isHandleType(varInfo.type) && !varInfo.isArray) {
 							const handleTracker = aboutNode.handles.local.get(varName);
 							if (!handleTracker) {
 								const lastSetValueExpression = extractValueNodeFromDeclaration(varInfo.node);
@@ -504,33 +507,33 @@ class ASTInference {
 		}
 	}
 
-	trackVariableTested(node, ancestorNode, ioEntry, varInfo /* maybe null */) {
+	trackVariableTested(node, ancestorNode, ioEntry/*, varInfo*/ /* maybe null */) {
 		const aboutTestNode = this.about.get(ancestorNode);
 		aboutTestNode.variables.read.add(ioEntry);
 	}
 
-	trackVariableWrite(node, ancestorNode, ioEntry, varInfo /* maybe null */) {
+	trackVariableWrite(node, ancestorNode, ioEntry/*, varInfo*/ /* maybe null */) {
 		const aboutFnAncestor = this.about.get(this.currentFnNode);
 		aboutFnAncestor.variables.written.add(ioEntry);
-		if (this.currentLoopNode) {
-			const aboutLoopAncestor = this.about.get(this.currentLoopNode);
+		if (this.currentLoopFrame) {
+			const aboutLoopAncestor = this.about.get(this.currentLoopFrame.node);
 			aboutLoopAncestor.variables.written.add(ioEntry);
 		}
 	}
 
-	trackHandlePassByRef(node, ancestorNode, ioEntry, varInfo, callExpressionNode) {
+	trackHandlePassByRef(node, ancestorNode, ioEntry, varInfo/*, callExpressionNode*/) {
 		/*
 		const aboutFnAncestor = this.about.get(this.currentFnNode);
 		aboutFnAncestor.variables.written.add(ioEntry);
-		if (this.currentLoopNode) {
-			const aboutLoopAncestor = this.about.get(this.currentLoopNode);
+		if (this.currentLoopFrame) {
+			const aboutLoopAncestor = this.about.get(this.currentLoopFrame);
 			aboutLoopAncestor.variables.written.add(ioEntry);
 		}*/
 		this.trackVariableWrite(node, ancestorNode, ioEntry, varInfo);
 	}
 
 	onLeaveVariable(node, ancestorNode, ioEntry, varInfo /* maybe null */) {
-		const aboutFnAncestor = this.about.get(this.currentFnNode);
+		//const aboutFnAncestor = this.about.get(this.currentFnNode);
 		const isAssignment = isVariableReferenceAssignment(node);
 		if (isAssignment) {
 			this.trackVariableWrite(node, ancestorNode, ioEntry, varInfo);

@@ -18,7 +18,7 @@ const Quantifier = {
 };
 
 function isNever(quantifier) {
-	return quantifier === 0;
+	return quantifier === Quantifier.kNone;
 }
 
 function isSomeTimes(quantifier) {

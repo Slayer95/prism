@@ -77,8 +77,8 @@ module.exports = {
 		},
 		return_value_discarded(eventName, node, fileName, funcName, lifeCycle, calleeName, returnType) {
 			if (IGNORED_RETURN_TYPES.includes(returnType)) return;
-			assert.notEqual(this.controlFlow.aboutFunctions.size, 0);
-			const aboutFn = this.controlFlow.aboutFunctions.get(calleeName);
+			assert.notEqual(this.inferenceEngine.aboutFunctions.size, 0);
+			const aboutFn = this.inferenceEngine.aboutFunctions.get(calleeName);
 			if (!aboutFn /* Native function */ || !aboutFn.return.global /* Return is teed to a global variable */) {
 				this.error(`%s:%s\n\n  %s\n\n  %s\n  %%s Function %s returns '%s', but it's discarded in %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), chalk.cyan(`recommended/${eventName}`), calleeName, returnType, funcName);
 			}

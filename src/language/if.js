@@ -3,15 +3,6 @@
 const assert = require('assert/strict');
 
 const {
-	getPrevSignificantSibling,
-	getNextSignificantSibling,
-	getSignificantSiblingsBefore,
-	getSignificantSiblingsAfter,
-	getUnwrapParensDescendant,
-	getUnwrapParensAncestor,
-	isLastSignificantSibling,
-	getClosestAnyRL,
-	isNodeType,
 	isNodeTypeAnyRL,
 	assertNodeTypeAnyRL,
 	assertNodeType,

@@ -52,6 +52,7 @@ function main() {
 	const {values, positionals} = util.parseArgs(cliConfig);
 	const {error, trees} = JASSParser.parseFiles([...values.library ?? [], ...positionals]);
 	if (error) {
+		console.error(error.stack);
 		return;
 	}
 	const validator = new Validator(values);

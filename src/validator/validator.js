@@ -5,9 +5,6 @@ const path = require('path');
 const util = require('util');
 const EventEmitter = require('events');
 
-const Parser = require('tree-sitter');
-const JASS = require('tree-sitter-jass');
-
 const {ValidatorResult} = require('./../../lib/constants');
 
 const {
@@ -17,45 +14,47 @@ const {
 const {
 	TypeInfo,
 	internalTypes, isNumberType, isPrimitiveType, isPrimitiveTypeOrCode, isExtensibleType,
-	isAPINeedsInitialization, isAPIHandleDestroyer, isAPINullUnsafe,
-	isEntryPoint, entryPoints, isReservedKeyword,
+	isReservedKeyword,
 } = require('./../language');
 
 const {
-	Set: {getAreDisjoint, addMany},
-} = require('./../../lib/iterable-helpers');
+	isEntryPoint, entryPoints,
+	isAPINeedsInitialization, isAPIHandleDestroyer, isAPINullUnsafe,
+} = require('./../language/api');
 
 const {
-	extractParameters,
-	extractReturnType,
 	extractNthArgument,
-	isFunctionArgument,
-} = require('./../analysis/function');
+	getIsConstantFunctionOrNativeDeclaration,
+} = require('./../language/function');
 
 const {
 	isArrayTypeNode,
-} = require('./../analysis/var-declaration');
-
-const {
-	extractValueNodeFromSetStatement,
-	extractValueNodeFromDeclaration,
-} = require('./../analysis/var-value');
+} = require('./../language/var-declaration');
 
 const {
 	isVariableReferenceArray,
 	isVariableReferenceAssignment,
-} = require('./../analysis/var-reference');
+} = require('./../language/var-reference');
+
+const {
+	extractValueNodeFromSetStatement,
+	extractValueNodeFromDeclaration,
+} = require('./../language/var-value');
 
 const {
 	findChildNamed,
 	ensureKind,
 	getPrevSignificantSibling,
 	getNextSignificantSibling,
-	getUnwrapParensDescendant,
-	getUnwrapParensAncestor,
+	getInsideParens,
+	getOutsideParens,
 } = require('./../../lib/tree-helpers');
 
 const ASTInference = require('./../analysis/ast-inference');
+
+const N2N = require('./../language/n2n');
+const N2I = require('./../language/n2i');
+const N2X = require('./../language/n2x');
 
 class Validator extends EventEmitter {
 	constructor(options) {
@@ -80,7 +79,7 @@ class Validator extends EventEmitter {
 		this.symbols = {
 			types: this.getInternalTypes(),
 			global: new Map(),
-			local: new Map(),
+			local: null,
 			//currentFunction: '',
 			currentLocal: null,
 		};
@@ -104,7 +103,7 @@ class Validator extends EventEmitter {
 		this.symbols = {
 			types: this.getInternalTypes(),
 			global: new Map(),
-			local: new Map(),
+			local: null,
 			//currentFunction: '',
 			currentLocal: null,
 		};
@@ -175,7 +174,6 @@ class Validator extends EventEmitter {
 
 	getContextFunctionSignature(node) {
 		let parentNode = node.closest('FunctionDeclaration');
-		let funcName = '~';
 		if (parentNode?.type === 'FunctionDeclaration') {
 			let signatureNode = parentNode.firstNamedChild;
 			if (signatureNode.type === 'FunctionSignature') {
@@ -220,7 +218,7 @@ class Validator extends EventEmitter {
 	}
 
 	resetLocalSymbols() {
-		this.symbols.local.clear();
+		this.symbols.local = null;
 	}
 
 	checkTreeInner(filePath, cst, isLibrary) {
@@ -301,7 +299,7 @@ class Validator extends EventEmitter {
 
 	registerFunction(node /* FunctionSignature */, symbolName) {
 		const parentNode = node.parent;
-		const isConstant = parentNode.firstNamedChild.type === 'ConstantAttribute';
+		const isConstant = getIsConstantFunctionOrNativeDeclaration(parentNode);
 		const isNative = parentNode.type === 'NativeDeclaration';
 		if (isNative) {
 			this.nativeCount++;
@@ -312,8 +310,8 @@ class Validator extends EventEmitter {
 			name: symbolName,
 			node: node,
 			type: 'code',
-			parameters: extractParameters(findChildNamed(node, 'input')),
-			returnType: extractReturnType(findChildNamed(node, 'output')),
+			parameters: N2X.FunctionSignature.getParameters(node),
+			returnType: N2X.FunctionSignature.getReturnType(node),
 			isConstant,
 			hasGlobalSet: false,
 			hasNonConstantCalls: false,
@@ -330,14 +328,16 @@ class Validator extends EventEmitter {
 			hasInitialValue: true,
 			isSyntacticFunction: true,
 			file: this.currentFile,
+			localSymbols: (isNative ? null : new Map()),
 		};
+		this.symbols.local = symbol.localSymbols;
 		this.symbols.global.set(symbolName, symbol);
 		return symbol;
 	}
 
 	registerGlobalVariable(node /* GlobalDeclarationStatement */, symbolName, typeNode /* AtomicType | ArrayType */) {
 		const isArray = isArrayTypeNode(typeNode);
-		const isConstant = !isArray && node.firstChild.type === 'ConstantAttribute';
+		const isConstant = !isArray && N2X.GlobalDeclarationStatement.getIsConstant(node);
 		const initialValueNode = extractValueNodeFromDeclaration(node);
 		this.symbols.global.set(symbolName, {
 			name: symbolName,
@@ -695,7 +695,7 @@ class Validator extends EventEmitter {
 		if (!fullyDefined && this.symbols.currentLocal?.[0] === bindName) {
 			return this.symbols.currentLocal[1];
 		}
-		if (this.symbols.local.has(bindName)) {
+		if (this.symbols.local?.has(bindName)) {
 			return this.symbols.local.get(bindName);
 		}
 		if (this.symbols.global.has(bindName)) {
@@ -711,7 +711,7 @@ class Validator extends EventEmitter {
 		if (!fullyDefined && this.symbols.currentLocal?.[0] === bindName) {
 			return this.symbols.currentLocal[1];
 		}
-		if (this.symbols.local.has(bindName)) {
+		if (this.symbols.local?.has(bindName)) {
 			return this.symbols.local.get(bindName);
 		}
 		if (this.symbols.global.has(bindName)) {

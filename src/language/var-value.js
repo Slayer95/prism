@@ -3,14 +3,14 @@
 //const assert = require('assert');
 
 const {
-	getUnwrapParensDescendant,
+	getInsideParens,
 } = require('./../../lib/tree-helpers');
 
 function extractValueNodeFromSetStatement(node /* SetStatement */) {
-	return getUnwrapParensDescendant(node.lastNamedChild.lastNamedChild);
+	return getInsideParens(node.lastNamedChild.lastNamedChild);
 }
 
-function extractValueNodeFromDeclaration(node /* GlobalDeclarationStatement */) {
+function extractValueNodeFromDeclaration(node /* GlobalDeclarationStatement | LocalDeclarationStatement */) {
 	if (node.lastNamedChild.type !== 'Initializer') return null;
 	return node.lastNamedChild.lastNamedChild;
 }
