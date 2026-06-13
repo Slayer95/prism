@@ -5,6 +5,7 @@ const assert = require('assert');
 const {
 	getOutsideParens,
 	getInsideParens,
+	getLastSignificantChild,
 } = require('./../../lib/tree-helpers');
 
 const NodeToNode = require('./n2n');
@@ -32,7 +33,7 @@ function getIsConstantFunctionOrNativeDeclaration(node /* FunctionDeclaration | 
 }
 
 function getReturnedSymbolName(node /* ReturnStatement */) {
-	const returnedNode = node.namedChildCount > 0 ? getInsideParens(node.lastNamedChild) : null;
+	const returnedNode = node.namedChildCount > 0 ? getInsideParens(getLastSignificantChild(node)) : null;
 	if (!returnedNode || returnedNode.type !== 'VariableReference') return '';
 	return returnedNode.text;
 }

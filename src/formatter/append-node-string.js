@@ -103,6 +103,7 @@ function flushCommentsAfter(buffer, lastNonComment, parentNode /* for debugging 
 
 function flushCommentsUntil(buffer, firstNonComment, parentNode) {
 	let node = parentNode.firstNamedChild;
+	// eslint-disable-next-line no-cond-assign
 	while ((node = node.nextNamedSibling) && node !== firstNonComment) {
 		buffer.push(node.text);
 	}

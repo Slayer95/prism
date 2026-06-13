@@ -4,15 +4,17 @@
 
 const {
 	getInsideParens,
+	getLastSignificantChild,
 } = require('./../../lib/tree-helpers');
 
 function extractValueNodeFromSetStatement(node /* SetStatement */) {
-	return getInsideParens(node.lastNamedChild.lastNamedChild);
+	return getInsideParens(getLastSignificantChild(getLastSignificantChild(node).lastNamedChild));
 }
 
 function extractValueNodeFromDeclaration(node /* GlobalDeclarationStatement | LocalDeclarationStatement */) {
-	if (node.lastNamedChild.type !== 'Initializer') return null;
-	return node.lastNamedChild.lastNamedChild;
+	const lastSignificantChild = getLastSignificantChild(node);
+	if (lastSignificantChild.type !== 'Initializer') return null;
+	return getLastSignificantChild(lastSignificantChild);
 }
 
 module.exports = {
