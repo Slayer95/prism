@@ -3,6 +3,11 @@
 const N2N = require('./n2n');
 
 const Node2Identifier = {
+	ArrayElement: {
+		extractVariable(node /* ArrayElement */) {
+			return N2N.ArrayElement.extractVariable(node).text;
+		},
+	},
 	CallExpression: {
 		extractCalleeName(node /* CallExpression */) {
 			return N2N.CallExpression.extractCallee(node).text;

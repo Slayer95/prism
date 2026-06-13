@@ -69,7 +69,9 @@ function main() {
 	}
 
 	assert(buffer.length < 100000);
-	process.stdout.write(buffer.join(''));
+	for (const line of buffer) {
+		process.stdout.write(Buffer.from(line, 'latin1'));
+	}
 }
 
 main();

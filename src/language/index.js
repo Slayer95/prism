@@ -8,6 +8,8 @@ const reservedKeyWords = [
 	'alias', 'type',
 ];
 
+const booleanOperators = ['and', 'or', '==', '!=', '<', '>', '<=', '>='];
+
 function isPrimitiveType(type) {
 	return primitiveTypes.includes(type);
 }
@@ -48,6 +50,10 @@ function isExpression(node) {
 	return false;
 }
 
+function isBooleanOperator(operator) {
+	return booleanOperators.includes(operator);
+}
+
 class TypeInfo {
 	constructor(name, parentType, onlyAtomic = false) {
 		this.name = name;
@@ -71,6 +77,7 @@ module.exports = {
 	isExtensibleType,
 	isNumberType,
 	isExpression,
+	isBooleanOperator,
 	primitiveTypes,
 	internalTypes,
 	reservedKeyWords,

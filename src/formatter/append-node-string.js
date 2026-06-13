@@ -8,9 +8,10 @@ const NodeToNode = require('./../language/n2n');
 const NodeToIdentifier = require('./../language/n2i');
 const NodeToStruct = require('./../language/n2x');
 
+const {expressionToString} = require('./expression-string');
+
 const {
 	getChildren,
-	getInsideParens, getInsideAndParens,
 	assertLastNamedChild,
 	assertNoNamedChildren,
 	assertOnlyNamedChild,
@@ -64,22 +65,16 @@ function wrapParens(source) {
 	return `(${source})`;
 }
 
-function expressionToString(node) {
-	/*
-	switch (node.type) {
-		case 'BinaryExpression':
-			return `${expressionToStringNormalParens(node.lhs)} ${node.operator} ${expressionToStringNormalParens(node.rhs)}`);
-	}
-	*/
-	return node.text.trim();
-}
-
 function expressionToStringNormalParens(node) {
-	return wrapParens(expressionToString(getInsideParens(node)));
+	return wrapParens(expressionToString(node));
 }
 
-function testToString(node) {
-	return wrapParens(expressionToString(getInsideAndParens(node)));
+function ifTestToString(node) {
+	return wrapParens(expressionToString(node.firstNamedChild));
+}
+
+function exitWhenTestToString(node) {
+	return expressionToString(node.firstNamedChild);
 }
 
 function commentToString(node, indentString, indentDepth) {
@@ -232,12 +227,12 @@ function appendNodeString(buffer, node, indentString, indentDepth = 0) {
 		case 'LIfStatement': {
 			const ifTuples = N2X.getTuples(node);
 			let index = 0;
-			buffer.push(indent(indentString, indentDepth, `if ${testToString(ifTuples[index][0])} then`));
+			buffer.push(indent(indentString, indentDepth, `if ${ifTestToString(ifTuples[index][0])} then`));
 			addCommentsInRange(buffer, ifTuples[index][0], ifTuples[index][1]); // (Test) (Comment) (Consequent)
 			appendNodeString(buffer, ifTuples[index][1], indentString, indentDepth);
 			index = index + 1;
 			while (index < ifTuples.length && ifTuples[index][0] !== null) {
-				buffer.push(indent(indentString, indentDepth, `elseif ${testToString(ifTuples[index][0])} then`));
+				buffer.push(indent(indentString, indentDepth, `elseif ${ifTestToString(ifTuples[index][0])} then`));
 				addCommentsInRange(buffer, ifTuples[index][0], ifTuples[index][1]); // (Test) (Comment) (Alternate)
 				appendNodeString(buffer, ifTuples[index][1], indentString, indentDepth);
 				index = index + 1;
@@ -279,7 +274,7 @@ function appendNodeString(buffer, node, indentString, indentDepth = 0) {
 				buffer.push(indent(indentString, indentDepth, `return`));
 			} else {
 				assertOnlyNamedChild(expressionNode);
-				buffer.push(indent(indentString, indentDepth, `return ${expressionToString(getInsideParens(expressionNode))}`));
+				buffer.push(indent(indentString, indentDepth, `return ${expressionToString(expressionNode)}`));
 			}
 			break;
 		}
@@ -291,9 +286,9 @@ function appendNodeString(buffer, node, indentString, indentDepth = 0) {
 			assertLastNamedChild(valueNode, node);
 			if (bindingNode.type === 'ArrayElement') {
 				const indexNode = NodeToNode.ArrayElement.extractIndex(bindingNode);
-				buffer.push(indent(indentString, indentDepth, `set ${variableName}[${expressionToString(getInsideParens(indexNode))}] = ${expressionToString(getInsideParens(valueNode))}`));
+				buffer.push(indent(indentString, indentDepth, `set ${variableName}[${expressionToString(indexNode)}] = ${expressionToString(valueNode)}`));
 			} else {
-				buffer.push(indent(indentString, indentDepth, `set ${variableName} = ${expressionToString(getInsideParens(valueNode))}`));
+				buffer.push(indent(indentString, indentDepth, `set ${variableName} = ${expressionToString(valueNode)}`));
 			}
 			break;
 		}
@@ -308,7 +303,7 @@ function appendNodeString(buffer, node, indentString, indentDepth = 0) {
 		case 'ExitWhenStatement': {
 			const testNode = N2N.extractTest(node);
 			assertLastNamedChild(testNode, node);
-			buffer.push(indent(indentString, indentDepth, `exitwhen ${expressionToString(getInsideAndParens(testNode))}`));
+			buffer.push(indent(indentString, indentDepth, `exitwhen ${exitWhenTestToString(testNode)}`));
 			break;
 		}
 
