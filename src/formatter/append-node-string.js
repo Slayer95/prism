@@ -11,6 +11,9 @@ const NodeToStruct = require('./../language/n2x');
 const {
 	getChildren,
 	getInsideParens, getInsideAndParens,
+	assertLastNamedChild,
+	assertNoNamedChildren,
+	assertOnlyNamedChild,
 } = require('./../../lib/tree-helpers');
 
 function indent(c, depth, content) {
@@ -79,6 +82,39 @@ function testToString(node) {
 	return wrapParens(expressionToString(getInsideAndParens(node)));
 }
 
+function commentToString(node, indentString, indentDepth) {
+	const lines = node.text.trim().split('\r');
+	return lines.map(line => {
+		return indent(indentString, indentDepth, `// ${line.slice(2).trim()}\n`)
+	}).join('\n');
+}
+
+function isInlineNode(node) {
+	if (!node.beforeSibling) return false;
+	return node.startPosition.row === node.beforeSibling.startPosition;
+}
+
+function flushCommentsAfter(buffer, lastNonComment, parentNode /* for debugging */) {
+	// eslint-disable-next-line no-cond-assign
+	while (lastNonComment = lastNonComment.nextNamedSibling) {
+		buffer.push(lastNonComment.text);
+	}
+}
+
+function flushCommentsUntil(buffer, firstNonComment, parentNode) {
+	let node = parentNode.firstNamedChild;
+	while ((node = node.nextNamedSibling) && node !== firstNonComment) {
+		buffer.push(node.text);
+	}
+}
+
+function addCommentsInRange(buffer, startSiblingExclusive, endSiblingExclusive) {
+	let node = startSiblingExclusive;
+	while ((node = node.nextNamedSibling) != endSiblingExclusive) {
+		buffer.push(node.text);
+	}
+}
+
 function appendNodeString(buffer, node, indentString, indentDepth = 0) {
 	assert.equal(typeof node.type, 'string');
 	const N2I = NodeToIdentifier[node.type];
@@ -99,11 +135,15 @@ function appendNodeString(buffer, node, indentString, indentDepth = 0) {
 		}
 
 		case 'Comment': {
-			const lines = node.text.trim().split('\r');
-			for (let i = 0; i < lines.length - 1; i++) {
-				buffer.push(indent(indentString, indentDepth, `// ${lines[i].slice(2).trim()}\n`));
+			if (isInlineNode(node)) {
+				buffer.push(node);
+			} else {
+				const lines = node.text.trim().split('\r');
+				for (let i = 0; i < lines.length - 1; i++) {
+					buffer.push(indent(indentString, indentDepth, `// ${lines[i].slice(2).trim()}\n`));
+				}
+				buffer.push(indent(indentString, indentDepth, `// ${lines[lines.length - 1].slice(2).trim()}`));
 			}
-			buffer.push(indent(indentString, indentDepth, `// ${lines[lines.length - 1].slice(2).trim()}`));
 			break;
 		}
 
@@ -116,6 +156,7 @@ function appendNodeString(buffer, node, indentString, indentDepth = 0) {
 			const subName = N2I.extractSub(node);
 			const superName = N2I.extractSuper(node);
 			buffer.push(`type ${subName} extends ${superName}`);
+			assertLastNamedChild(N2N.extractSuper(node), node);
 			break;
 		}
 
@@ -144,6 +185,7 @@ function appendNodeString(buffer, node, indentString, indentDepth = 0) {
 			const isConstant = N2X.getIsConstant(node);
 			const signatureNode = N2N.extractSignature(node);
 			assert.equal(signatureNode.type, 'FunctionSignature');
+			assertLastNamedChild(signatureNode, node);
 			const parameters = NodeToStruct.FunctionSignature.getParameters(signatureNode);
 			const returnType = NodeToStruct.FunctionSignature.getReturnType(signatureNode);
 			const constantFragment = maybePrefix(isConstant, 'constant');
@@ -165,7 +207,9 @@ function appendNodeString(buffer, node, indentString, indentDepth = 0) {
 			const parameterFragment = parametersToString(parameters);
 			const returnTypeFragment = returnTypeToString(returnType);
 			const functionBody = N2N.extractBody(node);
+			assertLastNamedChild(functionBody, node);
 			buffer.push(`${constantFragment}function ${functionName} takes ${parameterFragment} returns ${returnTypeFragment}`);
+			addCommentsInRange(buffer, signatureNode, functionBody);
 			for (const childNode of getChildren(functionBody)) {
 				appendNodeString(buffer, childNode, indentString, 1);
 			}
@@ -177,6 +221,7 @@ function appendNodeString(buffer, node, indentString, indentDepth = 0) {
 			const typeNode = N2N.extractType(node);
 			const nameNode = N2N.extractName(node);
 			const valueNode = N2N.extractValue(node);
+			assertLastNamedChild(valueNode ?? nameNode, node);
 			const initializerFragment = valueNode ? ` = ${expressionToString(valueNode)}` : ``;
 			buffer.push(indent(indentString, indentDepth, `local ${typeToString(typeNode)} ${nameNode.text}${initializerFragment}`));
 			break;
@@ -187,15 +232,18 @@ function appendNodeString(buffer, node, indentString, indentDepth = 0) {
 			const ifTuples = N2X.getTuples(node);
 			let index = 0;
 			buffer.push(indent(indentString, indentDepth, `if ${testToString(ifTuples[index][0])} then`));
+			addCommentsInRange(buffer, ifTuples[index][0], ifTuples[index][1]); // (Test) (Comment) (Consequent)
 			appendNodeString(buffer, ifTuples[index][1], indentString, indentDepth);
 			index = index + 1;
 			while (index < ifTuples.length && ifTuples[index][0] !== null) {
 				buffer.push(indent(indentString, indentDepth, `elseif ${testToString(ifTuples[index][0])} then`));
+				addCommentsInRange(buffer, ifTuples[index][0], ifTuples[index][1]); // (Test) (Comment) (Alternate)
 				appendNodeString(buffer, ifTuples[index][1], indentString, indentDepth);
 				index = index + 1;
 			}
 			if (index < ifTuples.length) {
 				buffer.push(indent(indentString, indentDepth, `else`));
+				flushCommentsUntil(buffer, ifTuples[index][1], ifTuples[index][1].parent); // (Comment) (Alternate)
 				appendNodeString(buffer, ifTuples[index][1], indentString, indentDepth);
 			}
 			buffer.push(indent(indentString, indentDepth, `endif`));
@@ -226,8 +274,10 @@ function appendNodeString(buffer, node, indentString, indentDepth = 0) {
 		case 'ReturnStatement': {
 			const expressionNode = N2N.extractExpression(node);
 			if (!expressionNode) {
+				assertNoNamedChildren(node);
 				buffer.push(indent(indentString, indentDepth, `return`));
 			} else {
+				assertOnlyNamedChild(expressionNode);
 				buffer.push(indent(indentString, indentDepth, `return ${expressionToString(getInsideParens(expressionNode))}`));
 			}
 			break;
@@ -237,6 +287,7 @@ function appendNodeString(buffer, node, indentString, indentDepth = 0) {
 			const bindingNode = N2N.extractBinding(node);
 			const variableName = N2I.extractVariable(node);
 			const valueNode = N2N.extractValue(node);
+			assertLastNamedChild(valueNode, node);
 			if (bindingNode.type === 'ArrayElement') {
 				const indexNode = NodeToNode.ArrayElement.extractIndex(bindingNode);
 				buffer.push(indent(indentString, indentDepth, `set ${variableName}[${expressionToString(getInsideParens(indexNode))}] = ${expressionToString(getInsideParens(valueNode))}`));
@@ -248,12 +299,14 @@ function appendNodeString(buffer, node, indentString, indentDepth = 0) {
 
 		case 'CallStatement': {
 			const callExpression = N2N.extractCallExpression(node);
+			assertLastNamedChild(callExpression, node);
 			buffer.push(indent(indentString, indentDepth, `call ${expressionToString(callExpression)}`));
 			break;
 		}
 
 		case 'ExitWhenStatement': {
 			const testNode = N2N.extractTest(node);
+			assertLastNamedChild(testNode, node);
 			buffer.push(indent(indentString, indentDepth, `exitwhen ${expressionToString(getInsideAndParens(testNode))}`));
 			break;
 		}
