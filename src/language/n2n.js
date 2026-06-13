@@ -2,10 +2,12 @@
 
 const {
 	findChildNamed,
+	getFirstSignificantChild,
+	getLastSignificantChild,
+	getNextSignificantSibling,
 	/*
 	ensureKind,
 	getPrevSignificantSibling,
-	getNextSignificantSibling,
 	getSignificantSiblingsBefore,
 	getSignificantSiblingsAfter,
 	getInsideParens,
@@ -29,7 +31,7 @@ const Node2Node = {
 	},
 	CallStatement: {
 		extractCallExpression(node /* CallStatement */) {
-			return node.lastNamedChild;
+			return getLastSignificantChild(node);
 		},
 	},
 	CallExpression: {
@@ -46,7 +48,7 @@ const Node2Node = {
 	},
 	ExitWhenStatement: {
 		extractTest(node /* ExitWhenStatement */) {
-			return node.lastNamedChild;
+			return getLastSignificantChild(node);
 		},
 	},
 	FunctionArgumentList: {
@@ -62,8 +64,8 @@ const Node2Node = {
 	},
 	FunctionDeclaration: {
 		extractConstant(node /* FunctionDeclaration */) {
-			if (node.firstChild.type === 'ConstantAttribute') {
-				return node.firstChild;
+			if (node.firstNamedChild.type === 'ConstantAttribute') {
+				return node.firstNamedChild;
 			}
 			return null;
 		},
@@ -71,7 +73,7 @@ const Node2Node = {
 			return findChildNamed(node, 'signature');
 		},
 		extractBody(node /* FunctionDeclaration */) {
-			return node.lastNamedChild;
+			return getLastSignificantChild(node);
 		},
 	},
 	FunctionSignature: {
@@ -105,23 +107,23 @@ const Node2Node = {
 	},
 	IfStatement: {
 		extractTest(node /* IfStatement */) {
-			return node.firstNamedChild;
+			return getFirstSignificantChild(node);
 		},
 		extractConsequent(node /* IfStatement */) {
-			return node.firstNamedChild.nextNamedSibling;
+			return getNextSignificantSibling(getFirstSignificantChild(node));
 		},
 	},
 	ElseIfStatement: {
 		extractTest(node /* IfStatement */) {
-			return node.firstNamedChild;
+			return getFirstSignificantChild(node);
 		},
 		extractAlternate(node /* ElseStatement */) {
-			return node.lastNamedChild;
+			return getLastSignificantChild(node);
 		},
 	},
 	ElseStatement: {
 		extractAlternate(node /* ElseStatement */) {
-			return node.lastNamedChild;
+			return getLastSignificantChild(node);
 		},
 	},
 	LocalDeclarationStatement: {
@@ -132,8 +134,9 @@ const Node2Node = {
 			return findChildNamed(node, 'name');
 		},
 		extractValue(node /* GlobalDeclarationStatement */) {
-			if (node.lastNamedChild.type !== 'Initializer') return null;
-			return node.lastNamedChild.lastNamedChild;
+			const lastSignificant = getLastSignificantChild(node);
+			if (lastSignificant.type !== 'Initializer') return null;
+			return getLastSignificantChild(lastSignificant);
 		},
 	},
 	NativeDeclaration: {
@@ -144,13 +147,13 @@ const Node2Node = {
 			return null;
 		},
 		extractSignature(node /* NativeDeclaration */) {
-			return node.lastNamedChild;
+			return getLastSignificantChild(node);
 		},
 	},
 	ReturnStatement: {
 		extractExpression(node /* ReturnStatement */) {
 			if (node.namedChildCount === 0) return null;
-			return node.lastNamedChild;	
+			return getLastSignificantChild(node);
 		},
 	},
 	SetStatement: {
@@ -165,7 +168,7 @@ const Node2Node = {
 			return Node2Node.ArrayElement.extractVariable(binding);
 		},
 		extractValue(node /* SetStatement */) {
-			return node.lastNamedChild;
+			return getLastSignificantChild(getLastSignificantChild(node));
 		},
 	},
 	TypeDeclaration: {
@@ -173,7 +176,7 @@ const Node2Node = {
 			return node.firstNamedChild;
 		},
 		extractSuper(node /* TypeDeclaration */) {
-			return node.lastNamedChild;
+			return getLastSignificantChild(node);
 		},
 	},
 };

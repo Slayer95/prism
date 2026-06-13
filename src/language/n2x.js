@@ -5,10 +5,10 @@ const N2N = require('./n2n');
 
 const {
 	findChildNamed,
+	getNextSignificantSibling,
 	/*
 	ensureKind,
 	getPrevSignificantSibling,
-	getNextSignificantSibling,
 	getSignificantSiblingsBefore,
 	getSignificantSiblingsAfter,
 	getInsideParens,
@@ -16,8 +16,8 @@ const {
 	getChildren,
 	isLastSignificantSibling,
 	getClosestAnyRL,
-	assertNodeTypeAnyRL,
 	*/
+	assertNodeTypeAnyRL,
 	isNodeTypeAnyRL,
 } = require('./../../lib/tree-helpers');
 
@@ -65,19 +65,22 @@ const Node2Struct = {
 		getTuples(node) {
 			const testNode = N2N.IfStatement.extractTest(node);
 			const consequentNode = N2N.IfStatement.extractConsequent(node);
+			assertNodeTypeAnyRL(consequentNode, 'Consequent');
+			
 			const result = [[testNode, consequentNode]];
-			let alternateStatement = consequentNode;
+			let elseOrElseIfStatement = consequentNode;
 			// eslint-disable-next-line no-cond-assign
-			while (alternateStatement = alternateStatement.nextNamedSibling) {
-				if (isNodeTypeAnyRL(alternateStatement, 'ElseStatement')) {
+			while (elseOrElseIfStatement = getNextSignificantSibling(elseOrElseIfStatement)) {
+				if (isNodeTypeAnyRL(elseOrElseIfStatement, 'ElseStatement')) {
 					result.push([
 						null,
-						N2N.ElseStatement.extractAlternate(alternateStatement),
+						N2N.ElseStatement.extractAlternate(elseOrElseIfStatement),
 					]);
 				} else {
+					assertNodeTypeAnyRL(elseOrElseIfStatement, 'ElseIfStatement');
 					result.push([
-						N2N.ElseIfStatement.extractTest(alternateStatement),
-						N2N.ElseIfStatement.extractAlternate(alternateStatement),
+						N2N.ElseIfStatement.extractTest(elseOrElseIfStatement),
+						N2N.ElseIfStatement.extractAlternate(elseOrElseIfStatement),
 					]);
 				}
 			}
