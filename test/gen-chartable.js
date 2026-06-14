@@ -22,7 +22,7 @@ function genCharTable() {
 	}
 
 	buffers.push(Buffer.from(footer));
-	return Buffers.concat(buffers);
+	return Buffer.concat(buffers);
 }
 
 //process.stdout.write(genCharTable());

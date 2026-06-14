@@ -8,7 +8,7 @@ const {
 } = require('./../../lib/tree-helpers');
 
 function extractValueNodeFromSetStatement(node /* SetStatement */) {
-	return getInsideParens(getLastSignificantChild(getLastSignificantChild(node).lastNamedChild));
+	return getInsideParens(getLastSignificantChild(getLastSignificantChild(node)));
 }
 
 function extractValueNodeFromDeclaration(node /* GlobalDeclarationStatement | LocalDeclarationStatement */) {
