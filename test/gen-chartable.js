@@ -1,7 +1,7 @@
 function genCharTable() {
 	const output = [];
 	const isEscapable = charCode => {
-		return charCode === 8 || charCode === 9 || charCode === 0x0A || charCode === 0x0D;
+		return charCode === 8 || charCode === 9 || charCode === 0x0A || charCode === 0xC || charCode === 0x0D;
 	};
 
 	const buffers = [];
