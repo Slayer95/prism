@@ -1270,6 +1270,7 @@ class Validator extends EventEmitter {
 
 			case 'Test': {
 				this.inferenceEngine.enter(node);
+				this.validateNodeType(node, 'boolean', node.firstNamedChild, `Test expression`);
 				const trivialValue = this.getTrivialTestValue(node);
 				if (trivialValue !== null) {
 					if (node.parent.type === 'ExitWhenStatement') {
