@@ -50,8 +50,16 @@ function isExpression(node) {
 	return false;
 }
 
+function isStatement(node) {
+	return node.type.endsWith('Statement');
+}
+
 function isBooleanOperator(operator) {
 	return booleanOperators.includes(operator);
+}
+
+function isShortCircuitOperator(operator) {
+	return operator === 'and' || operator === 'or';
 }
 
 class TypeInfo {
@@ -78,9 +86,11 @@ module.exports = {
 	isNumberType,
 	isExpression,
 	isBooleanOperator,
+	isShortCircuitOperator,
 	primitiveTypes,
 	internalTypes,
 	reservedKeyWords,
 
 	isReservedKeyword,
+	isStatement,
 };

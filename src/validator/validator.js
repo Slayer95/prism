@@ -1317,6 +1317,8 @@ class Validator extends EventEmitter {
 			}
 
 			case 'BinaryExpression': {
+				this.inferenceEngine.enter(node);
+
 				const op = findChildNamed(node, 'operator').text;
 
 				if (op === '==' || op === '!=') {
@@ -1435,6 +1437,10 @@ class Validator extends EventEmitter {
 			}
 
 			case 'ReturnStatement': {
+				this.inferenceEngine.leave(node);
+				break;
+			}
+			case 'BinaryExpression': {
 				this.inferenceEngine.leave(node);
 				break;
 			}

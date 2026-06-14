@@ -10,6 +10,8 @@ const HandleTracker = require('./../../lib/handle-tracker');
 const {
 	TypeInfo,
 	internalTypes, isNumberType, isPrimitiveType, isHandleType,
+	isShortCircuitOperator,
+	isStatement,
 } = require('./../language');
 
 const {
@@ -53,10 +55,12 @@ const {
 	getSignificantSiblingsAfter,
 	getInsideParens,
 	getOutsideParens,
+	getClosestStatement,
 	isLastSignificantSibling,
 	getClosestAnyRL,
 	isNodeTypeAnyRL,
 	assertNodeTypeAnyRL,
+	findChildNamed,
 } = require('./../../lib/tree-helpers');
 
 const {
@@ -78,6 +82,7 @@ class ASTInference {
 		this.currentFnNode = null;
 		this.currentLoopFrame = null;
 		this.currentIfFrame = null;
+		this.currentStmtFrame = null;
 		this.stack = new SyntaxStack();
 		this.about = new Map();
 		this.aboutFunctions = new Map();
@@ -88,16 +93,21 @@ class ASTInference {
 		if (this.getIsNestedNodeType(node.type)) {
 			this.currentNode = node;
 			if (node.type === 'LoopStatement') {
-				this.stack.push(node, 'loop');
+				this.stack.push(node, SyntaxStack.FrameTypes.kLoop);
 				this.currentLoopFrame = this.stack.loop.peek();
 			} else if (isNodeTypeAnyRL(node, 'IfStatement')) {
-				this.stack.push(node, 'if');
+				this.stack.push(node, SyntaxStack.FrameTypes.kIf);
 				this.currentIfFrame = this.stack.if.peek();
+			} else if (isStatement(node)) {
+				this.stack.push(node, SyntaxStack.FrameTypes.kStmt);
+				this.currentStmtFrame = this.stack.stmt.peek();
 			} else {
-				this.stack.push(node, 'other');
+				this.stack.push(node, SyntaxStack.FrameTypes.kAny);
 			}
 
-			assert(this.validator.currentFunction, `No current function found when entering ${node.type} in ${node.parent.text}`);
+			if (node.type !== 'BinaryExpression' && node.type !== 'GlobalDeclarationStatement') {
+				assert(this.validator.currentFunction, `No current function found when entering ${node.type} in ${node.parent.text}`);
+			}
 
 			const aboutNode = {
 				branchCount: 1,
@@ -108,17 +118,18 @@ class ASTInference {
 					collected: [/*{exitWhenNode: null, ifPath: []}*/],
 				},
 				'return': {
-					needs: !!this.validator.currentFunction.returnType,
-					type: this.validator.currentFunction.returnType,
+					needs: !!this.validator.currentFunction?.returnType,
+					type: this.validator.currentFunction?.returnType,
 					//always: false,
 					branchesHave: 0,
 					//someTimes: false,
 					quantifier: Quantifier.kNone,
-					global: !!this.validator.currentFunction.returnType,
+					global: !!this.validator.currentFunction?.returnType,
 					node: null,
 					nodes: [],
 				},
 				'tests': [],
+				'scNodes': [],
 				'variables': {
 					read: new Set(),
 					written: new Set(),
@@ -158,18 +169,24 @@ class ASTInference {
 			this.stack.pop(node);
 			this.currentNode = ancestorNode;
 			if (!this.currentNode) this.currentFnNode = null;
-			if (node.type === 'LoopStatement') {
+			/*if (node.type === 'LoopStatement') {
 				this.currentLoopFrame = this.stack.loop.peek();
 			} else if (isNodeTypeAnyRL(node, 'IfStatement')) {
 				this.currentIfFrame = this.stack.if.peek();
 			} else if (isNodeTypeAnyRL(node, 'Consequent') || isNodeTypeAnyRL(node, 'Alternate')) {
+				this.currentIfFrame.branch++;
+			}*/
+			this.currentLoopFrame = this.stack.loop.peek();
+			this.currentIfFrame = this.stack.if.peek();
+			this.currentStmtFrame = this.stack.stmt.peek();
+			if (isNodeTypeAnyRL(node, 'Consequent') || isNodeTypeAnyRL(node, 'Alternate')) {
 				this.currentIfFrame.branch++;
 			}
 		}
 	}
 
 	getIsNestedNodeType(nodeType) {
-		return (nodeType !== 'ReturnStatement' && nodeType !== 'VariableReference' && nodeType !== 'ArrayElement');
+		return (nodeType !== 'VariableReference' && nodeType !== 'ArrayElement');
 	}
 
 	getExitWhenVariables(exitWhenNode, ifPath) {
@@ -224,44 +241,7 @@ class ASTInference {
 
 	onLeave(node, ancestorNode) {
 		let nextSignificantNode;
-		if (node.type === 'ReturnStatement') {
-			const aboutFn = this.about.get(this.currentFnNode);
-			if (!this.getIsGlobalReturn(node)) {
-				aboutFn.return.global = false;
-			}
-
-			const aboutAncestor = this.about.get(ancestorNode);
-			if (!aboutAncestor.return.node) {
-				aboutAncestor.return.node = node;
-				aboutFn.return.nodes.push(node);
-				if (isSomeTimes(aboutAncestor.exitwhen.quantifier)) {
-					aboutAncestor.return.quantifier = Quantifier.kSomeTimes;
-				} else {
-					aboutAncestor.return.quantifier = Quantifier.kAlways;
-				}
-			}
-
-			if ((nextSignificantNode = getNextSignificantSibling(node)) !== null) {
-				// Baseline PASS
-				this.validator.emitNodeEvent(nextSignificantNode, 'unreachable_code', 'return', node);
-			} else if (!aboutFn.return.needs && ancestorNode === this.currentFnNode) {
-				// Baseline PASS
-				this.validator.emitNodeEvent(node, 'needless_return');
-			}
-			return;
-		} else if (node.type === 'ExitWhenStatement') {
-			const aboutAncestor = this.about.get(ancestorNode);
-			if (!isAlways(aboutAncestor.return.quantifier)) {
-				aboutAncestor.exitwhen.quantifier |= QuantifierBasis.kSome;
-
-				const aboutLoopAncestor = this.about.get(this.currentLoopFrame.node);
-				aboutLoopAncestor.exitwhen.collected.push({
-					exitWhenNode: node,
-					ifPath: this.stack.getIfStackInClosestLoop(),
-				});
-			}
-			return;
-		} else if (node.type === 'VariableReference') {
+		if (node.type === 'VariableReference') {
 			if (ancestorNode !== null) {
 				const ioEntry = node.text;
 				const varInfo = this.validator.getNonTypeSymbol(ioEntry);
@@ -282,20 +262,63 @@ class ASTInference {
 				aboutIfAncestor.tests.push(node);
 			}
 			return;
+		} else if (node.type === 'BinaryExpression') {
+			const op = findChildNamed(node, 'operator').text;
+			if (isShortCircuitOperator(op)) {
+				const stmtAncestor = this.currentStmtFrame.node;
+				const aboutStmt = this.about.get(stmtAncestor);
+				aboutStmt.scNodes.push(node);
+			}
 		} else {
 			const aboutNode = this.about.get(node);
 			const aboutAncestor = ancestorNode ? this.about.get(ancestorNode) : null;
-			if (aboutAncestor) {
-				// Propagate return and exitwhen upwards,
-				// but make sure exitwhen does not escape the closest loop.
-				if (isSomeTimes(aboutNode.return.quantifier)) {
-					aboutAncestor.return.quantifier |= QuantifierBasis.kSome;
-				}
-				if (!isLoopNode(node) && isSomeTimes(aboutNode.exitwhen.quantifier)) {
-					aboutAncestor.exitwhen.quantifier |= QuantifierBasis.kSome;
-				}
-			}
+
 			switch (node.type) {
+				case 'ReturnStatement': {
+					const aboutFn = this.about.get(this.currentFnNode);
+
+					aboutNode.return.quantifier = Quantifier.kAlways;
+
+					if (!isAlways(aboutAncestor.return.quantifier)) {
+						if (!this.getIsGlobalReturn(node)) {
+							aboutFn.return.global = false;
+						}
+						if (!aboutAncestor.return.node) {
+							aboutAncestor.return.node = node;
+						}
+						aboutFn.return.nodes.push(node);
+						if (isNever(aboutAncestor.exitwhen.quantifier)) {
+						//if (isSomeTimes(aboutAncestor.exitwhen.quantifier)) {
+							//aboutAncestor.return.quantifier = Quantifier.kSomeTimes;
+						//} else {
+							aboutAncestor.return.quantifier = Quantifier.kAlways;
+						}
+					} // otherwise, this is an unreachable return
+
+					if ((nextSignificantNode = getNextSignificantSibling(node)) !== null) {
+						// Baseline PASS
+						this.validator.emitNodeEvent(nextSignificantNode, 'unreachable_code', 'return', node);
+					} else if (!aboutFn.return.needs && ancestorNode === this.currentFnNode) {
+						// Baseline PASS
+						this.validator.emitNodeEvent(node, 'needless_return');
+					}
+					break;
+				}
+				case 'ExitWhenStatement': {
+					aboutNode.exitwhen.quantifier = Quantifier.kAlways;
+
+					if (!isAlways(aboutAncestor.return.quantifier)) {
+						//aboutAncestor.exitwhen.quantifier |= QuantifierBasis.kSome;
+
+						const aboutLoopAncestor = this.about.get(this.currentLoopFrame.node);
+						aboutLoopAncestor.exitwhen.collected.push({
+							exitWhenNode: node,
+							ifPath: this.stack.getIfStackInClosestLoop(),
+						});
+					}
+					break;
+				}
+
 				case 'FunctionBody': {
 					if (aboutNode.return.needs) {
 						if (isNever(aboutNode.return.quantifier)) {
@@ -483,6 +506,17 @@ class ASTInference {
 					throw new Error(`Unreachable case - node.type was ${node.type}`);
 			}
 
+			if (aboutAncestor) {
+				// Propagate return and exitwhen upwards,
+				// but make sure exitwhen does not escape the closest loop.
+				if (isSomeTimes(aboutNode.return.quantifier)) {
+					aboutAncestor.return.quantifier |= QuantifierBasis.kSome;
+				}
+				if (!isLoopNode(node) && isSomeTimes(aboutNode.exitwhen.quantifier)) {
+					aboutAncestor.exitwhen.quantifier |= QuantifierBasis.kSome;
+				}
+			}
+			
 			if (isAlways(aboutNode.return.quantifier) && node.type !== 'FunctionBody' && !isNodeTypeAnyRL(node.parent, 'IfStatement')) {
 				const fnNeedsReturn = this.about.get(this.currentFnNode).return.needs;
 				if (fnNeedsReturn) {
@@ -500,6 +534,7 @@ class ASTInference {
 	}
 
 	trackVariableRead(node, ancestorNode, ioEntry, varInfo /* maybe null */) {
+		if (!this.currentFnNode) return; // in GlobalDeclarationStatement
 		const aboutFnAncestor = this.about.get(this.currentFnNode);
 		aboutFnAncestor.variables.read.add(ioEntry);
 		if (ancestorNode.type === 'Test') {
@@ -513,6 +548,7 @@ class ASTInference {
 	}
 
 	trackVariableWrite(node, ancestorNode, ioEntry/*, varInfo*/ /* maybe null */) {
+		if (!this.currentFnNode) return; // in GlobalDeclarationStatement
 		const aboutFnAncestor = this.about.get(this.currentFnNode);
 		aboutFnAncestor.variables.written.add(ioEntry);
 		if (this.currentLoopFrame) {
