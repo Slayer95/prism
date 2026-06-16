@@ -38,10 +38,15 @@ function getReturnedSymbolName(node /* ReturnStatement */) {
 	return returnedNode.text;
 }
 
+function isReturnNode(node) {
+	return node.type === 'ReturnStatement';
+}
+
 module.exports = {
 	extractNthArgument,
 	getCallExpressionForFunctionArgument,
 	getCallExpressionForFunctionArgumentOrWrapped,
 	getIsConstantFunctionOrNativeDeclaration,
 	getReturnedSymbolName,
+	isReturnNode,
 };

@@ -15,6 +15,8 @@ const {
 	TypeInfo,
 	internalTypes, isNumberType, isPrimitiveType, isPrimitiveTypeOrCode, isExtensibleType,
 	isReservedKeyword,
+	getTrivialTestValue,
+	getTrivialNumberValue,
 } = require('./../language');
 
 const {
@@ -69,6 +71,7 @@ class Validator extends EventEmitter {
 		this.runningDeferred = false;
 		this.currentFile = '';
 		this.currentTree = null;
+		this.cursor = null;
 		this.isLibrary = false;
 		this.libraries = [];
 		this.history = [];
@@ -95,6 +98,7 @@ class Validator extends EventEmitter {
 		this.runningDeferred = false;
 		this.currentFile = '';
 		this.currentTree = null;
+		this.cursor = null;
 		this.isLibrary = false;
 		this.libraries = [];
 		this.history = [];
@@ -143,7 +147,7 @@ class Validator extends EventEmitter {
 
 	loadRules() {
 		if (!this.rules.length) {
-			this.rules.push('core', 'sound', 'entry', 'recommended');
+			this.rules.push('core', 'sound', 'entry', 'recommended-1');
 		}
 
 		for (const ruleId of this.rules) {
@@ -236,6 +240,7 @@ class Validator extends EventEmitter {
 		}]);
 
 		const cursor = this.currentTree.rootNode.walk();
+		this.cursor = cursor;
 		let reachedRoot = false;
 
 		while (!reachedRoot) {
@@ -640,57 +645,6 @@ class Validator extends EventEmitter {
 		return false;
 	}
 
-	getTrivialTestValue(node) {
-		if (node.type === 'ParenthesizedExpression' || node.type === 'Initializer') {
-			return this.getTrivialTestValue(node.firstNamedChild);
-		}
-		if (node.type !== 'Literal') return null;
-		if (node.text === 'true') return true;
-		if (node.text === 'false') return false;
-		return null;
-	}
-
-	getTrivialNumberValue(expressionType, node) {
-		if (node.type === 'ParenthesizedExpression' || node.type === 'Literal' || node.type === 'FunctionArgument' || node.type === 'Initializer') {
-			return this.getTrivialNumberValue(expressionType, node.firstNamedChild);
-		}
-
-		if (node.type === 'NegativeExpression') {
-			const innerResult = this.getTrivialNumberValue(expressionType, node.firstNamedChild);
-			if (innerResult === null) return null;
-			return -innerResult;
-		}
-
-		switch (node.type) {
-			case 'OctalInteger': {
-				const value = parseInt(node.text, 8);
-				return value;
-			}
-
-			case 'DecimalInteger': {
-				const value = parseInt(node.text, 10);
-				return value;
-			}
-
-			case 'HexInteger': {
-				const isNegative = node.text.charAt(0) === '-';
-				let offset = (+isNegative);
-				if (node.text.charAt(offset) === '0') {
-					offset += 1;
-				}
-				const value = parseInt(node.text.slice(offset + 1), 16);
-				return value;
-			}
-
-			case 'Real': {
-				return Number(node.text);
-			}
-
-			default:
-				return null;
-		}
-	}
-
 	getSymbol(bindName, fullyDefined = false) {
 		if (!fullyDefined && this.symbols.currentLocal?.[0] === bindName) {
 			return this.symbols.currentLocal[1];
@@ -772,7 +726,7 @@ class Validator extends EventEmitter {
 		}
 		if (node.type === 'ReturnStatement') {
 			if (isNumberType(expressionType) && isNumberType(expectedType)) {
-				const value = this.getTrivialNumberValue(expressionType, initializerNode);
+				const value = getTrivialNumberValue(initializerNode);
 				if (value !== null && (value === 0 || value === +0.)) {
 					// Integer 0 is IEEE 754 positive 0.0.
 					// This is (ab)used in some Blizzard maps, such as Worm War.
@@ -794,7 +748,7 @@ class Validator extends EventEmitter {
 			this.emitNodeEvent(node, 'type_mismatch', expectedType, expressionType, initializerDesc);
 			return false;
 		} else if (expressionType === 'integer' && expectedType === 'real') {
-			const value = this.getTrivialNumberValue(expressionType, initializerNode);
+			const value = getTrivialNumberValue(initializerNode);
 			if (value === null) {
 				// Baseline PASS
 				this.emitNodeEvent(node, 'lossy_type_cast', expectedType, expressionType, 'unknown', initializerNode.text, initializerDesc);
@@ -1271,7 +1225,7 @@ class Validator extends EventEmitter {
 			case 'Test': {
 				this.inferenceEngine.enter(node);
 				this.validateNodeType(node, 'boolean', node.firstNamedChild, `Test expression`);
-				const trivialValue = this.getTrivialTestValue(node);
+				const trivialValue = getTrivialTestValue(node);
 				if (trivialValue !== null) {
 					if (node.parent.type === 'ExitWhenStatement') {
 						if (trivialValue) {
@@ -1638,6 +1592,8 @@ class Validator extends EventEmitter {
 			result: this.result,
 			warnings: this.warnings || [],
 			errors: this.errors || [],
+			symbols: this.symbols,
+			inferenceEngine: this.inferenceEngine,
 		};
 	}
 }

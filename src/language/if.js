@@ -74,7 +74,12 @@ function* getAllTestNodes(node) {
 	yield* getTestNodes(node, node.namedChildCount /* just a big enough number */);
 }
 
+function isIfNode(node) {
+	return isNodeTypeAnyRL(node, 'IfStatement');
+}
+
 module.exports = {
+	isIfNode,
 	hasElseStatement,
 	getNthTestNode,
 	getTestNodes,

@@ -11,6 +11,7 @@ const {
 	TypeInfo,
 	internalTypes, isNumberType, isPrimitiveType, isHandleType,
 	isShortCircuitOperator,
+	isSpeculatableNode,
 	isStatement,
 } = require('./../language');
 
@@ -169,13 +170,6 @@ class ASTInference {
 			this.stack.pop(node);
 			this.currentNode = ancestorNode;
 			if (!this.currentNode) this.currentFnNode = null;
-			/*if (node.type === 'LoopStatement') {
-				this.currentLoopFrame = this.stack.loop.peek();
-			} else if (isNodeTypeAnyRL(node, 'IfStatement')) {
-				this.currentIfFrame = this.stack.if.peek();
-			} else if (isNodeTypeAnyRL(node, 'Consequent') || isNodeTypeAnyRL(node, 'Alternate')) {
-				this.currentIfFrame.branch++;
-			}*/
 			this.currentLoopFrame = this.stack.loop.peek();
 			this.currentIfFrame = this.stack.if.peek();
 			this.currentStmtFrame = this.stack.stmt.peek();
@@ -264,7 +258,7 @@ class ASTInference {
 			return;
 		} else if (node.type === 'BinaryExpression') {
 			const op = findChildNamed(node, 'operator').text;
-			if (isShortCircuitOperator(op)) {
+			if (isShortCircuitOperator(op) && /* simplify the CFG */ isSpeculatableNode(node)) {
 				const stmtAncestor = this.currentStmtFrame.node;
 				const aboutStmt = this.about.get(stmtAncestor);
 				aboutStmt.scNodes.push(node);
@@ -537,8 +531,9 @@ class ASTInference {
 		if (!this.currentFnNode) return; // in GlobalDeclarationStatement
 		const aboutFnAncestor = this.about.get(this.currentFnNode);
 		aboutFnAncestor.variables.read.add(ioEntry);
-		if (ancestorNode.type === 'Test') {
-			this.trackVariableTested(node, ancestorNode, ioEntry, varInfo);
+		const testAncestor = this.stack.getClosest('Test');
+		if (testAncestor) {
+			this.trackVariableTested(node, testAncestor, ioEntry, varInfo);
 		}
 	}
 

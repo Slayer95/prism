@@ -65,12 +65,6 @@ module.exports = {
 		number_type_punning(eventName, node, fileName, funcName, toType, fromType, value, desc) {
 			this.error(`%s:%s\n\n  %s\n\n  %s\n  %%s Casting %s value %d into %s.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), chalk.cyan(`recommended/${eventName}`), fromType, value, toType);
 		},
-		prefer_constant_variable(eventName, node, fileName, funcName, variableName, variableType) {
-			this.error(`%s:%s\n\n  %s\n\n  %s\n  %%s Global variable %s of type %s is never reassigned. Prefer declaration with 'constant %s'.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), chalk.cyan(`recommended/${eventName}`), variableName, variableType, variableType);
-		},
-		prefer_constant_function(eventName, node, fileName, funcName, variableName) {
-			this.error(`%s:%s\n\n  %s\n\n  %s\n  %%s Function %s only calls 'constant' functions. Prefer 'constant function' declaration.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), chalk.cyan(`recommended/${eventName}`), variableName);
-		},
 		recursive_function(eventName, node, fileName, funcName, calleeName) {
 			assert.equal(funcName, calleeName);
 			this.error(`%s:%s\n\n  %s\n\n  %s\n  %%s Function %s calls itself.\n`, chalk.yellow(fileName), chalk.yellow(node.startPosition.row), renderLintCode(node.text), chalk.cyan(`recommended/${eventName}`), calleeName);

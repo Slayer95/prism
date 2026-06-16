@@ -7,6 +7,7 @@ const chalk = require('chalk');
 const Validator = require('./../src/validator/validator');
 const JASSParser = require('./../src/parser/parser');
 const {ValidatorResult} = require('./../lib/constants');
+const {renderLintCode} = require('./../lib');
 
 const cliOptions = {
 	spec: {
@@ -56,7 +57,14 @@ function main() {
 		return;
 	}
 	const validator = new Validator(values);
-	const checkResult = validator.checkTrees(trees, values.library?.length ?? 0);
+	let checkResult;
+	try {
+		checkResult = validator.checkTrees(trees, values.library?.length ?? 0);
+	} catch (err) {
+		console.error(`${validator.currentFile}:${validator.cursor?.currentNode?.startPosition.row + 1} - exception while validating ${validator.cursor?.currentNode?.type}\n${renderLintCode(validator.cursor?.currentNode?.text ?? '')})`);
+		console.error(err.stack);
+		return;
+	}
 	const {result, errors, warnings} = checkResult;
 	validator.inferenceEngine.stack.checkEmpty();
 	switch (result) {

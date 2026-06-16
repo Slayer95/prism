@@ -14,7 +14,7 @@ const SOUND_RULESET = [...CORE_RULESET, 'sound'];
 
 // Recommended is very wide, and can fail for all sorts of reasons.
 // But I'll make do with it.
-const RECOMMENDED_RULESET = [...CORE_RULESET, 'sound', 'recommended'];
+const RECOMMENDED_RULESET = [...CORE_RULESET, 'sound', 'recommended-1'];
 
 const Rulesets = [
 	CORE_RULESET,

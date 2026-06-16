@@ -1,0 +1,1 @@
+type force extends handlenative CreateForce takes nothing returns forcefunction test takes nothing returns nothing	local integer XN = 0	local force array forcePlayers	loop		exitwhen XN == 16		set forcePlayers[XN] = CreateForce()		set XN = XN + 1	endloopendfunction

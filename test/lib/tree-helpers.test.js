@@ -57,7 +57,7 @@ function getTree() {
 }
 
 function walkEventsForTree(tree) {
-	return [...treeHelpers.walkTree(tree)].map((event) => ({
+	return Array.from(treeHelpers.walkTree(tree), (event) => ({
 		enter: event.enter,
 		leave: event.leave,
 		direction: event.direction,
@@ -273,16 +273,22 @@ test("getAllNodes traverses the whole tree", () => {
 test("walkTree yields balanced enter/leave events", () => {
 	const tree = getTree();
 	const events = walkEventsForTree(tree);
-
+	const stack = [];
 	assert.ok(events.length > 0, "walkTree should yield events");
-	assert.equal(events[0].enter, true);
-	assert.notEqual(events[0].type, "program");
-	assert.equal(events[events.length - 1].leave, true);
-	assert.equal(events[events.length - 1].type, "program");
 
-	const enterCount = events.filter((event) => event.enter).length;
-	const leaveCount = events.filter((event) => event.leave).length;
-	assert.equal(enterCount, leaveCount);
+	assert.equal(events[0].type, 'program');
+	assert.equal(events.at(-1).type, 'program');
+
+	for (let i = 0; i < events.length; i++) {
+		let event = events[i];
+		if (event.enter) {
+			stack.push(event.type);
+		} else {
+			assert.notEqual(stack.length, 0);
+			assert.equal(stack.at(-1), event.type, `Event ${i + 1}/${events.length} is ${event.type} ${event.type}, but is in ${stack.at(-1)}`);
+			stack.pop();
+		}
+	}
 });
 
 test("findNodeOfType locates expected nodes", () => {

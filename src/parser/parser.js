@@ -7,8 +7,29 @@ const path = require('path');
 const Parser = require('tree-sitter');
 const JASS = require('tree-sitter-jass');
 
+const CHUNK_SIZE = 16768;
+const parseOptions = {bufferSize: CHUNK_SIZE};
+
 function resolveFromCWD(p) {
 	return path.resolve(process.cwd(), p);
+}
+
+function doParseWhole(parser, buffer) {
+	return parser.parse(offset => {
+		if (offset < buffer.length) {
+			return buffer.slice(offset, buffer.length);
+		}
+		return null;
+	});
+}
+
+function doParseSyncStream(parser, buffer) {
+	return parser.parse(offset => {
+		if (offset < buffer.length) {
+			return buffer.slice(offset, offset + CHUNK_SIZE);
+		}
+		return null;
+	});
 }
 
 class ParseError extends SyntaxError {
@@ -20,25 +41,57 @@ class ParseError extends SyntaxError {
 }
 
 class JassParser {
-	static parse(sourceCode) {
+	static _parseString(input, desc) {
 		const parser = new Parser();
 		parser.setLanguage(JASS);
-		const tree = parser.parse(sourceCode);
+		const tree = parser.parse(input);
 		return {
-			error: tree.rootNode.hasError ? new ParseError(`Error parsing source code`) : null,
+			error: tree.rootNode.hasError ? new ParseError(`Error parsing ${desc}`) : null,
 			tree,
 		};
 	}
 
-	static parseFile(filePath) {
-		const fileContents = fs.readFileSync(resolveFromCWD(filePath), 'latin1');
+	static parseString(input, desc) {
 		const parser = new Parser();
 		parser.setLanguage(JASS);
-		const tree = parser.parse(fileContents);
+		const tree = parser.parse(input, undefined, {bufferSize: 2 * Buffer.byteLength(input, 'latin1')});
 		return {
-			error: tree.rootNode.hasError ? new ParseError(`Error parsing file ${filePath}`) : null,
+			error: tree.rootNode.hasError ? new ParseError(`Error parsing ${desc}`) : null,
 			tree,
 		};
+	}
+
+	static parseWhole(buffer, desc) {
+		const parser = new Parser();
+		parser.setLanguage(JASS);
+		const tree = doParseWhole(parser, buffer);
+		return {
+			error: tree.rootNode.hasError ? new ParseError(`Error parsing ${desc}`) : null,
+			tree,
+		};
+	}
+
+	static parseSyncStream(buffer, desc) {
+		const parser = new Parser();
+		parser.setLanguage(JASS);
+		const tree = doParseSyncStream(parser, buffer);
+		return {
+			error: tree.rootNode.hasError ? new ParseError(`Error parsing ${desc}`) : null,
+			tree,
+		};
+	}
+
+	static parse(sourceCode) {
+		if (Buffer.isBuffer(sourceCode) || sourceCode instanceof Uint8Array) {
+			return JassParser.parseWhole(sourceCode, `source code`);
+		}
+		//return JassParser.parseWhole(Buffer.from(sourceCode, 'latin1'), `source code`);
+		return JassParser.parseWhole(sourceCode, `source code`);
+	}
+
+	static parseFile(filePath) {
+		const fileContents = fs.readFileSync(resolveFromCWD(filePath), 'latin1');
+		return JassParser.parseWhole(fileContents, `file ${filePath}`);
 	}
 
 	static parseFiles(filePaths) {
@@ -49,8 +102,8 @@ class JassParser {
 		let errorFile = '';
 		parser.setLanguage(JASS);
 		for (const [filePath, fileContent] of fileContents) {
-			const tree = parser.parse(fileContent);
-			if (tree.rootNode.hasError) {
+			const tree = doParseSyncStream(parser, fileContent);
+			if (!anyError && tree.rootNode.hasError) {
 				anyError = true;
 				errorFile = filePath;
 			}

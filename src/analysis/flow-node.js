@@ -8,7 +8,7 @@ const {
 	TerminatorKind,
 } = require('./flow');
 
-class FlowBlock {
+class FlowNode {
 	constructor(id) {
 		this.id = id;
 		this.kind = '';
@@ -17,6 +17,18 @@ class FlowBlock {
 		this.sourceRange = null;
 		this.instructions = [];
 	}
+
+	static from(id, instructions) {
+		const node = new FlowNode(id);
+		node.instructions = instructions;
+		return node;
+	}
+
+	static synthetic(id) {
+		const node = new FlowNode(id);
+		node.synthetic = true;
+		return node;
+	}
 }
 
-module.exports = FlowBlock;
+module.exports = FlowNode;
